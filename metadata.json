@@ -1,0 +1,6 @@
+{
+  "name": "MoveLens - Free Chess Game Review",
+  "description": "Understand Every Move. Beautiful, free, and open chess game analysis for everyone.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
