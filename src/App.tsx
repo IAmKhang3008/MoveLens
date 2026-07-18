@@ -291,7 +291,10 @@ export default function App() {
             )}
 
             {currentView === 'about' && (
-              <AboutView />
+              <AboutView 
+                onNavigateToReview={() => navigateTo('review')} 
+                onNavigateToHome={() => navigateTo('home')}
+              />
             )}
 
             {currentView === 'guide' && (
@@ -329,6 +332,9 @@ export default function App() {
         <div className="max-w-7xl mx-auto text-center border-t border-neutral-900/60 mt-8 pt-6">
           <p className="text-[10px] text-neutral-600 flex items-center justify-center gap-1">
             Made with ♟️ for the global chess community
+          </p>
+          <p className="mt-1.5 text-[0.7rem] text-[#555] font-medium tracking-wide">
+            MoveLens Version 1.0.0 (Static UI Prototype)
           </p>
         </div>
       </footer>

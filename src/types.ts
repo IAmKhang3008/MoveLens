@@ -13,7 +13,7 @@ export interface ChessPiece {
 export type BoardSquare = ChessPiece | null;
 export type BoardState = BoardSquare[][]; // 8x8 matrix (0,0 is a8, 7,7 is h1)
 
-export type AnnotationType = 'brilliant' | 'great' | 'best' | 'book' | 'inaccuracy' | 'mistake' | 'blunder' | 'normal';
+export type AnnotationType = 'brilliant' | 'great' | 'best' | 'excellent' | 'good' | 'book' | 'inaccuracy' | 'mistake' | 'miss' | 'blunder' | 'normal';
 
 export interface Ply {
   plyIndex: number;      // 1-based index (1 = White's first move, 2 = Black's first move, etc.)
@@ -44,9 +44,12 @@ export interface GameSummary {
   brilliantCount: number;
   greatCount: number;
   bestCount: number;
+  excellentCount: number;
+  goodCount: number;
   bookCount: number;
   inaccuracyCount: number;
   mistakeCount: number;
+  missCount: number;
   blunderCount: number;
   whiteFlair?: string;
   blackFlair?: string;

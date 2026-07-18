@@ -14,7 +14,16 @@ export interface StockfishEvaluation {
   multipv?: number;   // multipv index (1, 2, 3...)
 }
 
-export type EngineType = 'lite-single' | 'lite-multi' | 'large-multi';
+export type EngineType = 'lite-single' | 'lite-multi' | 'large-multi' | 'large-single' | 'asm';
+
+type AnalysisTask = {
+  fen: string;
+  depth: number;
+  multipv?: number;
+  onProgress?: (data: StockfishEvaluation) => void;
+  resolve: (res: StockfishEvaluation) => void;
+  reject: (err: Error) => void;
+};
 
 export class StockfishManager {
   private worker: Worker | null = null;
@@ -25,6 +34,14 @@ export class StockfishManager {
   private threads: number = 1;
   private hashSize: number = 16; // MB
   private pendingQueue: string[] = [];
+  
+  // Advanced queue & cache
+  private analysisQueue: AnalysisTask[] = [];
+  private currentTask: AnalysisTask | null = null;
+  private evalCache: Map<string, StockfishEvaluation> = new Map();
+  private maxCacheSize: number = 200;
+  private lastEval: StockfishEvaluation | null = null;
+  private fallbackTimeout: any = null;
 
   private onReadyCallback: (() => void) | null = null;
   private onEvaluationCallback: ((evalData: StockfishEvaluation) => void) | null = null;
@@ -46,12 +63,45 @@ export class StockfishManager {
   private getWorkerPath(): string {
     switch (this.engineType) {
       case 'lite-multi':
-        return '/engines/stockfish-18-lite-multi.js';
+        return '/engines/stockfish-18-lite.js';
       case 'large-multi':
-        return '/engines/stockfish-18-multi.js';
+        return '/engines/stockfish-18.js';
+      case 'large-single':
+        return '/engines/stockfish-18-single.js';
+      case 'asm':
+        return '/engines/stockfish-18-asm.js';
       case 'lite-single':
       default:
         return '/engines/stockfish-18-lite-single.js';
+    }
+  }
+
+  /**
+   * Automatically attempts fallbacks if an engine fails or environment is restricted
+   */
+  private handleFallback(errorMsg: string) {
+    console.warn(`[StockfishManager] Engine ${this.engineType} failed: ${errorMsg}. Trying fallback...`);
+    
+    // Clear and terminate failed worker first
+    this.terminate();
+
+    if (this.engineType === 'large-multi') {
+      this.engineType = 'large-single';
+      this.threads = 1;
+      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
+    } else if (this.engineType === 'lite-multi') {
+      this.engineType = 'lite-single';
+      this.threads = 1;
+      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
+    } else if (this.engineType === 'large-single') {
+      this.engineType = 'lite-single';
+      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
+    } else if (this.engineType === 'lite-single') {
+      this.engineType = 'asm';
+      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
+    } else {
+      console.error('[StockfishManager] All engine options and fallbacks failed.');
+      this.onErrorCallback?.(`Stockfish failed to load: ${errorMsg}. Please try opening the application in a new tab.`);
     }
   }
 
@@ -64,8 +114,22 @@ export class StockfishManager {
 
     this.terminate(); // Kill any existing worker first
 
+    // Pre-emptive environment checks:
+    // If SharedArrayBuffer is not defined, we CANNOT run multi-threaded engines.
+    if (typeof SharedArrayBuffer === 'undefined') {
+      if (this.engineType === 'lite-multi') {
+        console.warn('[StockfishManager] SharedArrayBuffer not supported in this context. Fallback to lite-single.');
+        this.engineType = 'lite-single';
+        this.threads = 1;
+      } else if (this.engineType === 'large-multi') {
+        console.warn('[StockfishManager] SharedArrayBuffer not supported in this context. Fallback to large-single.');
+        this.engineType = 'large-single';
+        this.threads = 1;
+      }
+    }
+
     try {
-      const workerUrl = this.getWorkerPath();
+      const workerUrl = this.getWorkerPath() + '?v=18.0.8';
       console.log(`[StockfishManager] Initializing ${this.engineType} engine from ${workerUrl}`);
       
       // Instantiate worker
@@ -77,17 +141,16 @@ export class StockfishManager {
       };
 
       this.worker.onerror = (error: ErrorEvent) => {
-        console.error('[StockfishManager] Worker error:', error);
-        this.onErrorCallback?.(`Worker failed to load or crashed. If using a multi-threaded engine, ensure SharedArrayBuffer headers are enabled on the server.`);
+        console.error('[StockfishManager] Worker error event:', error);
+        this.handleFallback(error?.message || 'Worker error event received');
       };
 
-      // Send startup sequence
+      // Send startup sequence - wait for uciok to send isready
       this.send('uci');
-      this.send('isready');
 
     } catch (err: any) {
       console.error('[StockfishManager] Exception during init:', err);
-      this.onErrorCallback?.(err?.message || 'Failed to instantiate Stockfish worker.');
+      this.handleFallback(err?.message || 'Exception during worker instantiation');
     }
   }
 
@@ -103,32 +166,122 @@ export class StockfishManager {
    */
   private setupEngineOptions() {
     // Standard UCI options
-    if (this.engineType !== 'lite-single') {
+    if (this.engineType !== 'lite-single' && this.engineType !== 'large-single' && this.engineType !== 'asm') {
       // Configure threads for multi-threaded versions
       console.log(`[StockfishManager] Setting Threads to ${this.threads}`);
       this.send(`setoption name Threads value ${this.threads}`);
     }
     
     // Hash size configuration (important for deep search caches)
-    console.log(`[StockfishManager] Setting Hash to ${this.hashSize} MB`);
-    this.send(`setoption name Hash value ${this.hashSize}`);
+    if (this.engineType !== 'asm') {
+      console.log(`[StockfishManager] Setting Hash to ${this.hashSize} MB`);
+      this.send(`setoption name Hash value ${this.hashSize}`);
+    }
+    
+    // Now check if engine is ready
+    this.send('isready');
   }
 
   /**
-   * Starts analyzing a board position represented by a FEN string
+   * Advanced: Promise-based evaluation with queue and cache.
+   * Ensures only one evaluation runs at a time and prevents state corruption.
    */
-  public evaluatePosition(fen: string, depth: number) {
-    if (!this.worker) {
-      console.warn('[StockfishManager] Attempted to evaluate position but worker is not initialized.');
+  public evaluate(
+    fen: string,
+    depth: number,
+    onProgress?: (data: StockfishEvaluation) => void,
+    multipv?: number
+  ): Promise<StockfishEvaluation> {
+    const cacheKey = `${fen}|${depth}|${multipv || 1}`;
+    const cached = this.evalCache.get(cacheKey);
+    
+    if (cached) {
+      if (onProgress) onProgress(cached);
+      return Promise.resolve(cached);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.analysisQueue.push({
+        fen,
+        depth,
+        multipv,
+        onProgress,
+        resolve,
+        reject
+      });
+      this.processQueue();
+    });
+  }
+
+  private processQueue() {
+    if (this.currentTask || this.analysisQueue.length === 0 || !this.isReady) {
       return;
     }
 
+    this.currentTask = this.analysisQueue.shift()!;
     this.isSearching = true;
+    this.lastEval = null;
 
-    // Reset UCI game state and configure position
-    this.send('ucinewgame');
-    this.send(`position fen ${fen}`);
-    this.send(`go depth ${depth}`);
+    // Failsafe timeout
+    if (this.fallbackTimeout) clearTimeout(this.fallbackTimeout);
+    this.fallbackTimeout = setTimeout(() => {
+      if (this.currentTask && this.isSearching) {
+        console.warn(`Stockfish timeout at depth ${this.currentTask.depth}`);
+        // Send stop so engine gracefully outputs bestmove and finishes
+        this.send('stop');
+        
+        // Setup a secondary hard timeout in case engine is completely locked up
+        setTimeout(() => {
+          if (this.currentTask) {
+             const err = new Error("Engine locked up");
+             this.currentTask.reject(err);
+             this.finishCurrentTask();
+          }
+        }, 2000);
+      }
+    }, 15000); // 15s max per move
+
+    // Note: Do NOT send ucinewgame here, it drops the transposition table
+    if (this.currentTask.multipv) {
+      this.send(`setoption name MultiPV value ${this.currentTask.multipv}`);
+    } else {
+      this.send(`setoption name MultiPV value 1`);
+    }
+    this.send(`position fen ${this.currentTask.fen}`);
+    this.send(`go depth ${this.currentTask.depth}`);
+  }
+
+  /**
+   * Finishes the current analysis task and moves to the next
+   */
+  private finishCurrentTask(finalEval?: StockfishEvaluation) {
+    if (this.fallbackTimeout) {
+      clearTimeout(this.fallbackTimeout);
+      this.fallbackTimeout = null;
+    }
+
+    if (this.currentTask) {
+      if (finalEval) {
+        // Cache the result
+        const cacheKey = `${this.currentTask.fen}|${this.currentTask.depth}`;
+        if (this.evalCache.size >= this.maxCacheSize) {
+          const firstKey = this.evalCache.keys().next().value;
+          if (firstKey) this.evalCache.delete(firstKey);
+        }
+        this.evalCache.set(cacheKey, finalEval);
+        
+        this.currentTask.resolve(finalEval);
+      } else if (this.lastEval) {
+        // Fallback to lastEval if no final passed
+        this.currentTask.resolve(this.lastEval);
+      } else {
+        // Reject if nothing
+        this.currentTask.reject(new Error("No evaluation found"));
+      }
+    }
+    this.currentTask = null;
+    this.isSearching = false;
+    this.processQueue();
   }
 
   /**
@@ -161,6 +314,19 @@ export class StockfishManager {
     this.isSearching = false;
     this.isReady = false;
     this.pendingQueue = [];
+    
+    if (this.fallbackTimeout) {
+      clearTimeout(this.fallbackTimeout);
+      this.fallbackTimeout = null;
+    }
+    if (this.currentTask) {
+      this.currentTask.reject(new Error("Worker terminated"));
+      this.currentTask = null;
+    }
+    for (const task of this.analysisQueue) {
+      task.reject(new Error("Worker terminated"));
+    }
+    this.analysisQueue = [];
   }
 
   /**
@@ -229,6 +395,7 @@ export class StockfishManager {
       this.isReady = true;
       this.flushQueue();
       this.onReadyCallback?.();
+      this.processQueue();
     }
 
     // Parse 'info' line (progress score, depth, pv)
@@ -263,17 +430,25 @@ export class StockfishManager {
         const bestMove = pv.split(' ')[0] || '';
         const multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : undefined;
 
+        const evalResult: StockfishEvaluation = {
+          depth,
+          scoreType,
+          scoreValue,
+          scoreText,
+          nps,
+          pv,
+          bestMove,
+          multipv
+        };
+
+        this.lastEval = evalResult;
+
+        if (this.currentTask && this.currentTask.onProgress) {
+          this.currentTask.onProgress(evalResult);
+        }
+
         if (this.onEvaluationCallback) {
-          this.onEvaluationCallback({
-            depth,
-            scoreType,
-            scoreValue,
-            scoreText,
-            nps,
-            pv,
-            bestMove,
-            multipv
-          });
+          this.onEvaluationCallback(evalResult);
         }
       }
     }
@@ -281,6 +456,18 @@ export class StockfishManager {
     // Parse bestmove line
     if (line.startsWith('bestmove')) {
       this.isSearching = false;
+      
+      const parts = line.trim().split(' ');
+      const bestMove = parts[1] || '';
+
+      if (this.currentTask) {
+        if (this.lastEval) {
+          // If we had an info evaluation, add the actual bestMove string from engine
+          this.finishCurrentTask({ ...this.lastEval, bestMove });
+        } else {
+          this.finishCurrentTask();
+        }
+      }
     }
   }
 

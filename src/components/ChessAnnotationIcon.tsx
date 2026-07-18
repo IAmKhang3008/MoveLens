@@ -20,7 +20,7 @@ const PNG_MAP: Record<string, string> = {
   book: 'https://i.ibb.co/VcgB9hH9/book.png',
   best: 'https://i.ibb.co/vxm4DLY0/best.png',
   blunder: 'https://i.ibb.co/vxnsV4bk/blunder.png',
-  brilliant: 'https://i.ibb.co/DPmGs4NL/brilliant.png',
+  brilliant: 'https://i.ibb.co/PG9P84Y9/brilliant.png',
 };
 
 export default function ChessAnnotationIcon({

@@ -150,8 +150,8 @@ export const useStockfish = () => {
   const [bestMove, setBestMove] = useState(null);
 
   useEffect(() => {
-    // 1. Create a Web Worker instance pointing to stockfish.js in public/
-    workerRef.current = new Worker('/stockfish-18-lite-single.js');
+    // 1. Create a Web Worker instance pointing to stockfish.js
+    workerRef.current = new Worker('/engines/stockfish-18-lite-single.js?v=18.0.8');
 
     // 2. Listen for messages from the Worker
     workerRef.current.onmessage = (event) => {

@@ -327,6 +327,25 @@ function LichessFlair({ flair, className = "w-6 h-6" }: { flair: string | undefi
   );
 }
 
+// Simple in-memory cache to prevent redundant API hits and drastically speed up navigation/refreshes
+interface CachedProfile {
+  name: string;
+  avatar: string;
+  title?: string;
+  flair?: string;
+}
+
+interface CachedGamesResult {
+  profile: CachedProfile;
+  games: any[];
+  flairs?: Record<string, string>;
+}
+
+const CHESS_CACHE = {
+  profiles: new Map<string, CachedProfile>(), // key: `${platform}-${username}`
+  games: new Map<string, CachedGamesResult>(), // key: `${platform}-${username}-${year}-${month}`
+};
+
 export default function ReviewView() {
   // Game state
   const [plies, setPlies] = useState<Ply[]>(initialPlies);
@@ -486,10 +505,10 @@ export default function ReviewView() {
     function startLiveEvaluation(manager: StockfishManager, fen: string) {
       // Set MultiPV based on the selected mode
       const multiPVVal = analysisMode === 'alternative' ? 3 : 1;
-      manager.sendCommand(`setoption name MultiPV value ${multiPVVal}`);
       
-      // Set up evaluation handler
-      manager.onEvaluation((evalData) => {
+      // Run live engine evaluation to a lightweight depth (e.g., 14) for instant arrows
+      // using the robust Promise-based queue evaluate method instead of evaluatePosition
+      manager.evaluate(fen, 14, (evalData) => {
         const mv = evalData.multipv || 1;
         const currentBestForMv = activeMovesRef.current[mv];
 
@@ -530,10 +549,10 @@ export default function ReviewView() {
             setLiveArrows(newArrows);
           }
         }
+      }, multiPVVal).catch(err => {
+        // Live evaluation errors (e.g. from rapid stop/starts) can be ignored
+        console.warn("[Live Evaluation] Error:", err.message);
       });
-
-      // Run live engine evaluation to a lightweight depth (e.g., 14) for instant arrows
-      manager.evaluatePosition(fen, 14);
     }
 
   }, [currentPlyIndex, analysisMode, showEngineArrows, isAnalyzing, plies]);
@@ -664,24 +683,36 @@ export default function ReviewView() {
       return `${day} ${month} ${year}`;
     };
 
+    // Check cache first
+    const cacheKey = `chesscom-${username.toLowerCase()}-${targetYear}-${targetMonth}`;
+    if (CHESS_CACHE.games.has(cacheKey)) {
+      const cached = CHESS_CACHE.games.get(cacheKey)!;
+      setPlayerProfile(cached.profile);
+      setImportedGames(cached.games);
+      setIsLoadingGames(false);
+      return;
+    }
+
     try {
-      // 1. Fetch Profile
-      const profileRes = await fetch(`https://api.chess.com/pub/player/${username}`);
+      // Fetch Profile and Games concurrently in parallel to reduce API latency
+      const padDateNumber = (n: number) => n.toString().padStart(2, '0');
+      const profilePromise = fetch(`https://api.chess.com/pub/player/${username}`);
+      const gamesPromise = fetch(
+        `https://api.chess.com/pub/player/${username}/games/${targetYear}/${padDateNumber(targetMonth)}`
+      );
+
+      const [profileRes, gamesRes] = await Promise.all([profilePromise, gamesPromise]);
+
       if (!profileRes.ok) {
         throw new Error(profileRes.status === 404 ? "Chess.com user not found." : "Failed to fetch Chess.com profile.");
       }
       const profileData = await profileRes.json();
-      setPlayerProfile({
+      const profile = {
         name: profileData.name || profileData.username,
         avatar: profileData.avatar || `https://images.chesscomfiles.com/uploads/v1/user/default_avatar.png`,
         title: profileData.title,
-      });
-
-      // 2. Fetch Games for Specific Month & Year
-      const padDateNumber = (n: number) => n.toString().padStart(2, '0');
-      const gamesRes = await fetch(
-        `https://api.chess.com/pub/player/${username}/games/${targetYear}/${padDateNumber(targetMonth)}`
-      );
+      };
+      setPlayerProfile(profile);
 
       if (gamesRes.status === 404) {
         try {
@@ -753,8 +784,16 @@ export default function ReviewView() {
         };
       });
 
+      const reversedGames = [...formattedGames].reverse();
+
+      // Save to cache
+      CHESS_CACHE.games.set(cacheKey, {
+        profile,
+        games: reversedGames
+      });
+
       // Show recent games first
-      setImportedGames(formattedGames.reverse());
+      setImportedGames(reversedGames);
     } catch (err: any) {
       console.warn(err);
       setImportError(err.message || "An unexpected error occurred while fetching Chess.com games.");
@@ -780,36 +819,51 @@ export default function ReviewView() {
       return `${day} ${month} ${year}`;
     };
 
-    try {
-      // 1. Fetch Profile
-      const profileRes = await fetch(`https://lichess.org/api/user/${username}`);
-      if (!profileRes.ok) {
-        throw new Error(profileRes.status === 404 ? "Lichess user not found." : "Failed to fetch Lichess profile.");
+    // Check cache first
+    const cacheKey = `lichess-${username.toLowerCase()}-${targetYear}-${targetMonth}`;
+    if (CHESS_CACHE.games.has(cacheKey)) {
+      const cached = CHESS_CACHE.games.get(cacheKey)!;
+      setPlayerProfile(cached.profile);
+      setImportedGames(cached.games);
+      if (cached.flairs) {
+        setLichessFlairs(prev => ({ ...prev, ...cached.flairs }));
       }
-      const profileData = await profileRes.json();
-      setPlayerProfile({
-        name: profileData.profile?.firstName && profileData.profile?.lastName
-          ? `${profileData.profile.firstName} ${profileData.profile.lastName}`
-          : profileData.username,
-        avatar: `https://lichess.org/assets/avatar/${profileData.username}`,
-        title: profileData.title,
-        flair: profileData.flair,
-      });
+      setIsLoadingGames(false);
+      return;
+    }
 
-      // 2. Fetch Games for Specific Month & Year
+    try {
       const padDateNumber = (n: number) => n.toString().padStart(2, '0');
       const getMonthLength = (m: number, y: number) => new Date(y, m, 0).getDate();
 
       const monthStart = new Date(`${targetYear}-${padDateNumber(targetMonth)}-01T00:00:00.000Z`);
       const monthEnd = new Date(`${targetYear}-${padDateNumber(targetMonth)}-${padDateNumber(getMonthLength(targetMonth, targetYear))}T23:59:59.999Z`);
 
-      const gamesRes = await fetch(
+      // Fetch Profile and Games in parallel to minimize external API roundtrips
+      const profilePromise = fetch(`https://lichess.org/api/user/${username}`);
+      const gamesPromise = fetch(
         `https://lichess.org/api/games/user/${username}` +
         `?since=${monthStart.getTime()}` +
         `&until=${monthEnd.getTime()}` +
         `&pgnInJson=true`,
         { headers: { Accept: "application/x-ndjson" } }
       );
+
+      const [profileRes, gamesRes] = await Promise.all([profilePromise, gamesPromise]);
+
+      if (!profileRes.ok) {
+        throw new Error(profileRes.status === 404 ? "Lichess user not found." : "Failed to fetch Lichess profile.");
+      }
+      const profileData = await profileRes.json();
+      const profile = {
+        name: profileData.profile?.firstName && profileData.profile?.lastName
+          ? `${profileData.profile.firstName} ${profileData.profile.lastName}`
+          : profileData.username,
+        avatar: `https://lichess.org/assets/avatar/${profileData.username}`,
+        title: profileData.title,
+        flair: profileData.flair,
+      };
+      setPlayerProfile(profile);
 
       if (!gamesRes.ok) {
         if (gamesRes.status === 404) {
@@ -880,6 +934,7 @@ export default function ReviewView() {
         };
       });
 
+      const flairMap: Record<string, string> = {};
       // Bulk fetch opponent profiles to extract flairs
       if (opponentUsernames.size > 0) {
         try {
@@ -887,7 +942,6 @@ export default function ReviewView() {
           const bulkRes = await fetch(`https://lichess.org/api/users?${userParams}`);
           if (bulkRes.ok) {
             const bulkData = await bulkRes.json();
-            const flairMap: Record<string, string> = {};
             bulkData.forEach((u: any) => {
               if (u.flair) {
                 flairMap[u.id.toLowerCase()] = u.flair;
@@ -899,6 +953,13 @@ export default function ReviewView() {
           console.warn("Could not bulk fetch opponent flairs", bulkErr);
         }
       }
+
+      // Save to cache
+      CHESS_CACHE.games.set(cacheKey, {
+        profile,
+        games: formattedGames,
+        flairs: flairMap
+      });
 
       setImportedGames(formattedGames);
     } catch (err: any) {
@@ -1017,25 +1078,138 @@ export default function ReviewView() {
   };
 
   // Classify moves based on evaluation change
-  const classifyMoveQuality = (drop: number, isBest: boolean, isCapture: boolean): AnnotationType => {
-    // Drop is in centipawns (100 = 1 pawn drop)
-    if (isBest) {
+  // Sophisticated piece sacrifice detection helper using Chess.js simulation
+  const detectSacrifice = (fenBefore: string, move: { from: string; to: string; piece: string; captured?: string; promotion?: string }): boolean => {
+    const pieceValues: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    
+    const movingPieceType = move.piece;
+    const movingVal = pieceValues[movingPieceType] || 0;
+    
+    // 1. Capture Sacrifice: we capture something but the captured piece is worth less than the moving piece, 
+    // and the square is defended so we expect recapture.
+    if (move.captured) {
+      const capturedVal = pieceValues[move.captured] || 0;
+      if (movingVal > capturedVal) {
+        try {
+          const tempGame = new Chess(fenBefore);
+          tempGame.move({ from: move.from, to: move.to, promotion: move.promotion });
+          const opponentMoves = tempGame.moves({ verbose: true });
+          const canRecapture = opponentMoves.some(m => m.to === move.to);
+          if (canRecapture) {
+            return true;
+          }
+        } catch (e) {
+          console.error('[detectSacrifice] Error in capture sacrifice simulation:', e);
+        }
+      }
+    } else {
+      // 2. En prise Sacrifice: we move a piece of Knight/Bishop or higher value to a square where it is attacked
+      // and either undefended or poorly defended.
+      if (movingVal >= 3) {
+        try {
+          const tempGame = new Chess(fenBefore);
+          tempGame.move({ from: move.from, to: move.to, promotion: move.promotion });
+          
+          const opponentMoves = tempGame.moves({ verbose: true });
+          const isAttacked = opponentMoves.some(m => m.to === move.to);
+          
+          if (isAttacked) {
+            const captureMovesOnSquare = opponentMoves.filter(m => m.to === move.to);
+            if (captureMovesOnSquare.length > 0) {
+              const firstCapture = captureMovesOnSquare[0];
+              const capturingPieceVal = pieceValues[firstCapture.piece] || 1;
+              
+              const postCaptureGame = new Chess(tempGame.fen());
+              postCaptureGame.move({ from: firstCapture.from, to: firstCapture.to, promotion: firstCapture.promotion });
+              
+              const friendlyMoves = postCaptureGame.moves({ verbose: true });
+              const canFriendlyRecapture = friendlyMoves.some(m => m.to === move.to);
+              
+              if (!canFriendlyRecapture) {
+                // Completely hanging piece!
+                return true;
+              } else {
+                // Defended, but is the material trade negative for us?
+                if (movingVal - capturingPieceVal > 1) {
+                  return true;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[detectSacrifice] Error in en prise simulation:', e);
+        }
+      }
+    }
+    return false;
+  };
+
+  const classifyMoveQuality = (
+    drop: number, 
+    isBest: boolean, 
+    isSacrifice: boolean,
+    perspectiveCurrentScore: number,
+    perspectiveLastScore: number,
+    isCheckmate?: boolean,
+    opponentDrop?: number
+  ): AnnotationType => {
+    // 1. Brilliant (!!): sacrifice, low loss (drop < 20 or isBest or isCheckmate), not already winning (last score < 300), and not disastrous after (current score > -200)
+    if (isSacrifice && (drop < 20 || isBest || isCheckmate) && perspectiveLastScore < 300 && perspectiveCurrentScore > -200) {
+      return 'brilliant';
+    }
+
+    // Checkmate is always the best move
+    if (isCheckmate) {
       return 'best';
     }
 
-    if (drop <= 15) {
-      return 'best';
-    } else if (drop <= 45) {
+    // 2. Great (!): best/nearly best, improved position by >= 100cp (swing >= 100)
+    if ((isBest || drop < 20) && (perspectiveCurrentScore - perspectiveLastScore >= 100)) {
       return 'great';
-    } else if (drop <= 95) {
-      return 'normal';
-    } else if (drop <= 180) {
-      return 'inaccuracy';
-    } else if (drop <= 350) {
-      return 'mistake';
-    } else {
-      return 'blunder';
     }
+
+    // Miss (Missed Win / Missed Opportunity)
+    const isMiss = (() => {
+      // Must have missed a significant opportunity (high drop / centipawn loss)
+      if (drop < 100) return false;
+
+      // 1. Classic Missed Win: We had a winning position, but let it slip
+      const classicMissedWin = perspectiveLastScore >= 200 && perspectiveCurrentScore < 50;
+
+      // 2. Tactical Miss: Opponent made a significant error (opponentDrop >= 150), and we failed to punish it
+      // but our own position did not become totally lost (perspectiveCurrentScore >= -150)
+      const tacticalMiss = (opponentDrop && opponentDrop >= 150) && (perspectiveCurrentScore >= -150);
+
+      return classicMissedWin || tacticalMiss;
+    })();
+
+    if (isMiss) {
+      return 'miss';
+    }
+
+    // 4. Best: engine perfect
+    if (isBest || drop <= 0) {
+      return 'best';
+    }
+
+    // Standard Centipawn Loss Thresholds (Chess.com model)
+    if (drop <= 20) {
+      return 'excellent';
+    }
+
+    if (drop <= 50) {
+      return 'good';
+    }
+
+    if (drop <= 150) {
+      return 'inaccuracy';
+    }
+
+    if (drop <= 300) {
+      return 'mistake';
+    }
+
+    return 'blunder';
   };
 
   // Generate dynamic explanations based on annotation quality
@@ -1056,12 +1230,18 @@ export default function ReviewView() {
         return `A brilliant tactical stroke! ${player} plays ${san}, sacrificing material to initiate a deep attack. The evaluation remains highly favorable at ${scoreText}.`;
       case 'best':
         return `${player} plays the optimal continuation ${san}. This perfectly follows the computer's recommended theoretical line and maintains high positional pressure.`;
+      case 'excellent':
+        return `An excellent move! ${player} plays ${san}, finding one of the best lines and keeping a firm grip on the position.`;
+      case 'good':
+        return `A good move. ${player} plays ${san}. A solid choice that keeps the position competitive. Stockfish evaluation stands at ${scoreText}.`;
       case 'great':
         return `An excellent move! ${player} plays ${san}, keeping a firm grip on the position and continuing to build the initiative.`;
       case 'inaccuracy':
         return `An inaccuracy. ${player} plays ${san}, but drops the evaluation by ${absDropPawns} pawns. Stockfish suggests ${bestMove || 'another approach'} to maintain full control.`;
       case 'mistake':
         return `A significant mistake. Playing ${san} gives ${opponent} a chance to equalize or gain ground. Evaluation slips by ${absDropPawns} pawns. Better was ${bestMove || 'a different line'}.`;
+      case 'miss':
+        return `A missed opportunity! ${player} plays ${san}, missing a crucial tactic or advantage. Evaluation swings by ${absDropPawns} pawns.`;
       case 'blunder':
         return `A critical blunder! ${player} completely misses a defensive resource or drops major material with ${san}. Position evaluation swings by ${absDropPawns} pawns in ${opponent}'s favor!`;
       case 'book':
@@ -1216,16 +1396,20 @@ export default function ReviewView() {
     initialParsedPlies: Ply[],
     headers: any
   ) => {
-    let activeIndex = 0;
+    let activeIndex = -1; // -1 means starting position
     const finalPlies = [...initialParsedPlies];
+    const whitePerspectiveScoresList: number[] = [];
     
     // Track count of annotations
     let brilliantCount = 0;
     let greatCount = 0;
     let bestCount = 0;
+    let excellentCount = 0;
+    let goodCount = 0;
     let bookCount = 0;
     let inaccuracyCount = 0;
     let mistakeCount = 0;
+    let missCount = 0;
     let blunderCount = 0;
 
     // Track active player flairs if loaded from Lichess or names match
@@ -1242,9 +1426,12 @@ export default function ReviewView() {
       brilliantCount: 0,
       greatCount: 0,
       bestCount: 0,
+      excellentCount: 0,
+      goodCount: 0,
       bookCount: 0,
       inaccuracyCount: 0,
       mistakeCount: 0,
+      missCount: 0,
       blunderCount: 0,
       whiteFlair: undefined,
       blackFlair: undefined,
@@ -1254,12 +1441,53 @@ export default function ReviewView() {
     const whiteUsername = headers.White;
     const blackUsername = headers.Black;
     if (whiteUsername && blackUsername) {
-      Promise.all([
-        fetch(`https://lichess.org/api/user/${encodeURIComponent(whiteUsername.trim().toLowerCase())}`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`https://lichess.org/api/user/${encodeURIComponent(blackUsername.trim().toLowerCase())}`).then(r => r.ok ? r.json() : null).catch(() => null)
-      ]).then(([whiteProfile, blackProfile]) => {
-        whiteFlairVal = whiteProfile?.flair || undefined;
-        blackFlairVal = blackProfile?.flair || undefined;
+      const whiteCacheKey = `lichess-${whiteUsername.trim().toLowerCase()}`;
+      const blackCacheKey = `lichess-${blackUsername.trim().toLowerCase()}`;
+
+      const whiteCached = CHESS_CACHE.profiles.get(whiteCacheKey);
+      const blackCached = CHESS_CACHE.profiles.get(blackCacheKey);
+
+      if (whiteCached || blackCached) {
+        whiteFlairVal = whiteCached?.flair || undefined;
+        blackFlairVal = blackCached?.flair || undefined;
+        setSummary(prev => ({
+          ...prev,
+          whiteFlair: whiteFlairVal,
+          blackFlair: blackFlairVal,
+        }));
+      }
+
+      const whitePromise = whiteCached 
+        ? Promise.resolve(whiteCached) 
+        : fetch(`https://lichess.org/api/user/${encodeURIComponent(whiteUsername.trim().toLowerCase())}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data) {
+                const profile = { name: data.username, avatar: '', flair: data.flair };
+                CHESS_CACHE.profiles.set(whiteCacheKey, profile);
+                return profile;
+              }
+              return null;
+            })
+            .catch(() => null);
+
+      const blackPromise = blackCached 
+        ? Promise.resolve(blackCached) 
+        : fetch(`https://lichess.org/api/user/${encodeURIComponent(blackUsername.trim().toLowerCase())}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data) {
+                const profile = { name: data.username, avatar: '', flair: data.flair };
+                CHESS_CACHE.profiles.set(blackCacheKey, profile);
+                return profile;
+              }
+              return null;
+            })
+            .catch(() => null);
+
+      Promise.all([whitePromise, blackPromise]).then(([whiteData, blackData]) => {
+        whiteFlairVal = whiteData?.flair || whiteCached?.flair || undefined;
+        blackFlairVal = blackData?.flair || blackCached?.flair || undefined;
         setSummary(prev => ({
           ...prev,
           whiteFlair: whiteFlairVal,
@@ -1270,9 +1498,11 @@ export default function ReviewView() {
       });
     }
 
-    // Track previous evaluation score
-    // Initial starting board FEN is standard. We assume approx 0.00 or book opening evaluation
+    const startingFen = headers.FEN || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const getTurn = (fen: string) => (fen.split(' ')[1] === 'w' ? 'w' : 'b');
+
     let lastWhitePerspectiveScore = 0.0;
+    let lastBestMoveUci = '';
 
     const analyzeNextPly = () => {
       if (activeIndex >= finalPlies.length) {
@@ -1290,9 +1520,12 @@ export default function ReviewView() {
           brilliantCount,
           greatCount,
           bestCount,
+          excellentCount,
+          goodCount,
           bookCount,
           inaccuracyCount,
           mistakeCount,
+          missCount,
           blunderCount,
           whiteFlair: whiteFlairVal,
           blackFlair: blackFlairVal,
@@ -1305,131 +1538,166 @@ export default function ReviewView() {
         return;
       }
 
-      const activePly = finalPlies[activeIndex];
-      const plyNum = activeIndex + 1;
-      const progressPercent = Math.min(95, Math.round(15 + (activeIndex / finalPlies.length) * 80));
+      const isStartingPosition = activeIndex === -1;
+      const activePly = isStartingPosition ? null : finalPlies[activeIndex];
+      const plyNum = isStartingPosition ? 0 : activeIndex + 1;
+      const fenToEvaluate = isStartingPosition ? startingFen : (activePly!.fen || '');
+      const currentTurn = getTurn(fenToEvaluate);
+
+      const progressPercent = Math.min(95, Math.round(15 + ((activeIndex + 1) / (finalPlies.length + 1)) * 80));
 
       setAnalysisProgress(progressPercent);
-      setAnalysisStep(`Analyzing Move ${Math.ceil(plyNum / 2)} (${activePly.color === 'w' ? 'White' : 'Black'})...`);
+      if (isStartingPosition) {
+        setAnalysisStep(`Evaluating starting position...`);
+      } else {
+        setAnalysisStep(`Analyzing Move ${Math.ceil(plyNum / 2)} (${activePly!.color === 'w' ? 'White' : 'Black'})...`);
+      }
 
-      // Request evaluation for this ply's FEN
-      const plyFen = activePly.fen || '';
-      manager.evaluatePosition(plyFen, depth);
+      manager.evaluate(fenToEvaluate, depth, (evalData) => {
+        const normalizedLiveScore = normalizeScoreTextToWhite(evalData.scoreText, currentTurn === 'w' ? 'b' : 'w');
 
-      // We capture the evaluations as they stream, and once the search completes at requested depth, we lock in
-      let latestEval: StockfishEvaluation | null = null;
-      let isProcessed = false;
-
-      manager.onEvaluation((evalData) => {
-        latestEval = evalData;
-        const normalizedLiveScore = normalizeScoreTextToWhite(evalData.scoreText, activePly.color);
-        setCurrentEvalInfo({
-          depth: evalData.depth,
-          scoreText: normalizedLiveScore,
-          nps: evalData.nps,
-          pv: evalData.pv
-        });
-
-        // Provide smoother progress updates showing real-time search depth
-        setAnalysisStep(`Analyzing Move ${Math.ceil(plyNum / 2)} (${activePly.color === 'w' ? 'White' : 'Black'}) [Depth ${evalData.depth}/${depth}]...`);
-
-        // If we reach our target depth, we progress to the next move
-        if (evalData.depth >= depth) {
-          manager.stop(); // stop further search
-          processEvaluationAndContinue();
+        if (!isStartingPosition) {
+          setCurrentEvalInfo({
+            depth: evalData.depth,
+            scoreText: normalizedLiveScore,
+            nps: evalData.nps,
+            pv: evalData.pv
+          });
         }
-      });
 
-      // Fail-safe timeout in case worker hangs or doesn't reach depth (e.g., 2.5 seconds)
-      const timeoutToken = setTimeout(() => {
-        processEvaluationAndContinue();
-      }, 2500);
-
-      function processEvaluationAndContinue() {
-        if (isProcessed) return;
-        isProcessed = true;
-        clearTimeout(timeoutToken);
-        
-        // Lock in the final score or fallback
+        if (isStartingPosition) {
+          setAnalysisStep(`Evaluating starting position [Depth ${evalData.depth}/${depth}]...`);
+        } else {
+          setAnalysisStep(`Analyzing Move ${Math.ceil(plyNum / 2)} (${activePly!.color === 'w' ? 'White' : 'Black'}) [Depth ${evalData.depth}/${depth}]...`);
+        }
+      }).then((latestEval) => {
         const scoreType = latestEval?.scoreType || 'cp';
         const scoreVal = latestEval?.scoreValue ?? 0;
         const scoreTxt = latestEval?.scoreText || '0.00';
         const bestCompMove = latestEval?.bestMove || '';
 
-        // Calculate evaluation drop
-        const currentWhitePerspectiveScore = getWhitePerspectiveScore(scoreType, scoreVal, activePly.color);
-        let drop = 0;
+        const currentWhitePerspectiveScore = getWhitePerspectiveScore(scoreType, scoreVal, currentTurn === 'w' ? 'b' : 'w');
+        const normalizedScoreTxt = normalizeScoreTextToWhite(scoreTxt, currentTurn === 'w' ? 'b' : 'w');
 
-        if (activeIndex > 0) {
-          // Drop from perspective of the player who made the move
-          if (activePly.color === 'w') {
+        if (isStartingPosition) {
+          lastWhitePerspectiveScore = currentWhitePerspectiveScore;
+          lastBestMoveUci = bestCompMove;
+          whitePerspectiveScoresList.push(currentWhitePerspectiveScore);
+        } else {
+          let drop = 0;
+          if (activePly!.color === 'w') {
             drop = lastWhitePerspectiveScore - currentWhitePerspectiveScore;
           } else {
             drop = currentWhitePerspectiveScore - lastWhitePerspectiveScore;
           }
-        }
 
-        // Cache for next iteration
-        lastWhitePerspectiveScore = currentWhitePerspectiveScore;
+          // We want the absolute scores to be from the perspective of the player making the move
+          const perspectiveLastScore = activePly!.color === 'w' ? lastWhitePerspectiveScore : -lastWhitePerspectiveScore;
+          const perspectiveCurrentScore = activePly!.color === 'w' ? currentWhitePerspectiveScore : -currentWhitePerspectiveScore;
 
-        // Determine if they played the computer's top choice
-        // If it is a known opening book move (first 4 moves of game), we classify as book!
-        const OPENING_BOOK_MOVES = new Set([
-          'e4', 'e5', 'd4', 'd5', 'Nf3', 'Nc6', 'Nf6', 'c4', 'c5', 'g3', 'g6', 'Bg2', 'Bg7', 
-          'e3', 'e6', 'd3', 'd6', 'f4', 'f5', 'Nc3', 'Bc4', 'Bb5', 'a6', 'O-O'
-        ]);
+          // Calculate opponent's drop if applicable
+          let opponentDrop = 0;
+          if (activeIndex >= 1) {
+            const scoreTwoPliesAgo = whitePerspectiveScoresList[activeIndex - 1];
+            const scoreOnePlyAgo = whitePerspectiveScoresList[activeIndex];
+            if (activePly!.color === 'w') {
+              // Opponent was Black
+              opponentDrop = scoreOnePlyAgo - scoreTwoPliesAgo;
+            } else {
+              // Opponent was White
+              opponentDrop = scoreTwoPliesAgo - scoreOnePlyAgo;
+            }
+          }
 
-        let moveType: AnnotationType = 'normal';
-        if (activePly.moveNum <= 4 && OPENING_BOOK_MOVES.has(activePly.san.replace('+', ''))) {
-          moveType = 'book';
-          bookCount++;
-        } else {
-          // Precise best move detection using getUciMove coordinates helper
-          const playedUci = getUciMove(activePly.fromSquare, activePly.toSquare);
-          const isBest = playedUci !== '' && bestCompMove.toLowerCase().startsWith(playedUci.toLowerCase());
-          moveType = classifyMoveQuality(drop, isBest, false);
+          // Add our own score to the history list AFTER calculating the opponent's drop
+          whitePerspectiveScoresList.push(currentWhitePerspectiveScore);
 
-          // Brilliant move detection (heuristic):
-          // A move is brilliant if it is the best/top computer move (drop <= 0) and involves
-          // a tactical sacrifice (e.g. captured piece is knight/bishop/rook/queen but it's evaluated
-          // favorably, or if we moved a major piece to an attacked square).
-          const isMajorPiece = activePly.san.startsWith('N') || activePly.san.startsWith('B') || activePly.san.startsWith('R') || activePly.san.startsWith('Q');
-          const isCapture = activePly.san.includes('x');
-          const isBrilliantSac = moveType === 'best' && drop <= 0 && isMajorPiece && (isCapture || Math.abs(currentWhitePerspectiveScore) > 150);
+          // Reconstruct move to check for sacrifice and opening book
+          const fenBefore = activeIndex === 0 ? startingFen : (finalPlies[activeIndex - 1].fen || startingFen);
+          const positionKey = (activePly!.fen || '').split(' ')[0];
+          
+          // A Book move is an opening move in the DATABASE up to move 10
+          const isBookMove = activePly!.moveNum <= 10 && positionKey in OPENINGS_DATABASE;
 
-          if (isBrilliantSac) {
-            moveType = 'brilliant';
-            brilliantCount++;
+          let isSacrifice = false;
+          let playedUci = '';
+          let isBest = false;
+          let isCheckmate = false;
+
+          try {
+            const tempChess = new Chess(fenBefore);
+            const movesList = tempChess.moves({ verbose: true });
+            playedUci = getUciMove(activePly!.fromSquare, activePly!.toSquare);
+            const matchingMove = movesList.find(m => (m.from + m.to).toLowerCase() === playedUci.toLowerCase());
+            
+            if (matchingMove) {
+              isSacrifice = detectSacrifice(fenBefore, matchingMove);
+            }
+            
+            isBest = playedUci !== '' && lastBestMoveUci.toLowerCase().startsWith(playedUci.toLowerCase());
+
+            if (activePly!.san.endsWith('#')) {
+              isCheckmate = true;
+            } else if (matchingMove) {
+              const tempGameForMate = new Chess(fenBefore);
+              tempGameForMate.move({ from: matchingMove.from, to: matchingMove.to, promotion: matchingMove.promotion });
+              if (tempGameForMate.isCheckmate()) {
+                isCheckmate = true;
+              }
+            }
+          } catch (e) {
+            console.error('[runSequencingAnalysis] Error parsing played move details:', e);
+          }
+
+          let moveType: AnnotationType = 'normal';
+          if (isBookMove) {
+            moveType = 'book';
+            bookCount++;
           } else {
-            if (moveType === 'best') bestCount++;
+            moveType = classifyMoveQuality(
+              drop, 
+              isBest, 
+              isSacrifice,
+              perspectiveCurrentScore, 
+              perspectiveLastScore,
+              isCheckmate,
+              opponentDrop
+            );
+
+            if (moveType === 'brilliant') brilliantCount++;
+            else if (moveType === 'best') bestCount++;
             else if (moveType === 'great') greatCount++;
+            else if (moveType === 'excellent') excellentCount++;
+            else if (moveType === 'good') goodCount++;
             else if (moveType === 'inaccuracy') inaccuracyCount++;
             else if (moveType === 'mistake') mistakeCount++;
+            else if (moveType === 'miss') missCount++;
             else if (moveType === 'blunder') blunderCount++;
           }
+
+          const moveComment = generateMoveComment(activePly!.san, moveType, drop, normalizedScoreTxt, lastBestMoveUci, activePly!.color);
+
+          finalPlies[activeIndex] = {
+            ...activePly!,
+            annotation: moveType,
+            comment: moveComment,
+            scoreText: normalizedScoreTxt
+          };
+
+          setPlies([...finalPlies]);
+
+          lastWhitePerspectiveScore = currentWhitePerspectiveScore;
+          lastBestMoveUci = bestCompMove;
         }
 
-        // Normalize the score text to always be from White's perspective
-        const normalizedScoreTxt = normalizeScoreTextToWhite(scoreTxt, activePly.color);
-
-        // Generate Commentary text with normalized score
-        const moveComment = generateMoveComment(activePly.san, moveType, drop, normalizedScoreTxt, bestCompMove, activePly.color);
-
-        // Update ply state in final array
-        finalPlies[activeIndex] = {
-          ...activePly,
-          annotation: moveType,
-          comment: moveComment,
-          scoreText: normalizedScoreTxt // store normalized score on the ply object
-        };
-
-        // Push incremental state update to UI so the user can see real-time updates!
-        setPlies([...finalPlies]);
-
-        // Proceed
         activeIndex++;
         analyzeNextPly();
-      }
+      }).catch((err) => {
+        console.error("Evaluation failed:", err);
+        // Continue anyway
+        activeIndex++;
+        analyzeNextPly();
+      });
     };
 
     // Kick off
@@ -1442,9 +1710,12 @@ export default function ReviewView() {
       brilliant: { bg: 'bg-green-500/5 text-green-400 border-green-500/20', border: 'border-green-500/20', text: 'text-green-400', label: 'Brilliant' },
       great: { bg: 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20', border: 'border-emerald-500/20', text: 'text-emerald-400', label: 'Great' },
       best: { bg: 'bg-blue-500/5 text-blue-400 border-blue-500/20', border: 'border-blue-500/20', text: 'text-blue-400', label: 'Best' },
+      excellent: { bg: 'bg-indigo-500/5 text-indigo-400 border-indigo-500/20', border: 'border-indigo-500/20', text: 'text-indigo-400', label: 'Excellent' },
+      good: { bg: 'bg-teal-500/5 text-teal-400 border-teal-500/20', border: 'border-teal-500/20', text: 'text-teal-400', label: 'Good' },
       book: { bg: 'bg-sky-500/5 text-sky-400 border-sky-500/10', border: 'border-sky-500/10', text: 'text-sky-400', label: 'Book' },
       inaccuracy: { bg: 'bg-amber-500/5 text-amber-500 border-amber-500/10', border: 'border-amber-500/10', text: 'text-amber-500', label: 'Inaccuracy' },
       mistake: { bg: 'bg-orange-500/5 text-orange-400 border-orange-500/10', border: 'border-orange-500/10', text: 'text-orange-400', label: 'Mistake' },
+      miss: { bg: 'bg-red-500/5 text-red-400 border-red-500/10', border: 'border-red-500/10', text: 'text-red-400', label: 'Miss' },
       blunder: { bg: 'bg-rose-500/5 text-rose-400 border-rose-500/20', border: 'border-rose-500/20', text: 'text-rose-400', label: 'Blunder' },
       normal: { bg: 'bg-neutral-800', border: 'border-neutral-700', text: 'text-neutral-400', label: 'Normal' },
     };
@@ -1488,9 +1759,20 @@ export default function ReviewView() {
     const score = parseFloat(scoreText);
     if (isNaN(score)) return 50;
 
-    // Convert score (-8.00 to +8.00) to height percentage (5% to 95%)
-    let percent = 50 + score * 6.25; // 8 * 6.25 = 50, so +8 -> 100%
-    return Math.max(5, Math.min(95, percent));
+    // Convert pawns score to centipawn score
+    const cp = score * 100;
+    
+    // Sigmoid (Logistic) Mapping as recommended in professional analysis:
+    // fill = 2 / (1 + e^(-cp / 400)) - 1
+    const scale = 400;
+    const raw = 2 / (1 + Math.exp(-cp / scale)) - 1;
+    
+    // Clamp to [-1, 1]
+    const clamped = Math.max(-1, Math.min(1, raw));
+    
+    // Map from [-1, 1] to [5%, 95%] height range
+    const percent = 5 + ((clamped + 1) / 2) * 90;
+    return percent;
   };
 
   const evalPercentage = getEvalBarHeight();
@@ -1572,12 +1854,12 @@ export default function ReviewView() {
           <div className="flex gap-4.5 w-full items-stretch justify-center max-w-[530px]">
             
             {/* 1. PROFESSIONAL VERTICAL EVALUATION BAR */}
-            <div className="w-5 bg-neutral-900 rounded-2xl overflow-hidden flex flex-col justify-between border border-neutral-800/80 shadow-inner relative" title="Evaluation meter">
+            <div className="w-10 bg-neutral-900 rounded-2xl overflow-hidden flex flex-col justify-between border border-neutral-800/80 shadow-inner relative" title="Evaluation meter">
               {/* Black Fill (top) */}
               <div className="flex-1 bg-neutral-950 transition-all duration-300 relative">
                 {/* Score display text at top of bar if evaluation is negative */}
                 {evalPercentage < 50 && (
-                  <span className="absolute top-2 left-0 right-0 text-[10px] font-black font-mono text-white text-center rotate-0 select-none z-10 leading-none">
+                  <span className="absolute top-2 left-0 right-0 text-xs font-bold font-mono text-white text-center select-none z-10 leading-none px-0.5 truncate">
                     {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText) : '0.00'}
                   </span>
                 )}
@@ -1593,7 +1875,7 @@ export default function ReviewView() {
               >
                 {/* Score display text at bottom of bar if evaluation is positive */}
                 {evalPercentage >= 50 && (
-                  <span className="absolute bottom-2 left-0 right-0 text-[10px] font-black font-mono text-neutral-900 text-center select-none z-10 leading-none">
+                  <span className="absolute bottom-2 left-0 right-0 text-xs font-bold font-mono text-neutral-900 text-center select-none z-10 leading-none px-0.5 truncate">
                     {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText || '0.00') : '0.00'}
                   </span>
                 )}
@@ -1875,9 +2157,12 @@ export default function ReviewView() {
               {getAnnotationBadge('brilliant', summary.brilliantCount)}
               {getAnnotationBadge('great', summary.greatCount)}
               {getAnnotationBadge('best', summary.bestCount)}
+              {getAnnotationBadge('excellent', summary.excellentCount)}
+              {getAnnotationBadge('good', summary.goodCount)}
               {getAnnotationBadge('book', summary.bookCount)}
               {getAnnotationBadge('inaccuracy', summary.inaccuracyCount)}
               {getAnnotationBadge('mistake', summary.mistakeCount)}
+              {getAnnotationBadge('miss', summary.missCount)}
               {getAnnotationBadge('blunder', summary.blunderCount)}
             </div>
           </div>

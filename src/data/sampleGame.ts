@@ -52,9 +52,12 @@ export const gameSummary: GameSummary = {
   brilliantCount: 1,
   greatCount: 1,
   bestCount: 22,
+  excellentCount: 0,
+  goodCount: 0,
   bookCount: 4,
   inaccuracyCount: 1,
   mistakeCount: 2,
+  missCount: 0,
   blunderCount: 2,
 };
 
