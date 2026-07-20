@@ -82,27 +82,55 @@ export class StockfishManager {
   private handleFallback(errorMsg: string) {
     console.warn(`[StockfishManager] Engine ${this.engineType} failed: ${errorMsg}. Trying fallback...`);
     
-    // Clear and terminate failed worker first
+    // Save current task and queue
+    const savedCurrentTask = this.currentTask;
+    const savedQueue = [...this.analysisQueue];
+
+    // Detach to prevent terminate() from rejecting them
+    this.currentTask = null;
+    this.analysisQueue = [];
+
+    // Terminate failed worker first
     this.terminate();
 
     if (this.engineType === 'large-multi') {
       this.engineType = 'large-single';
       this.threads = 1;
-      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
     } else if (this.engineType === 'lite-multi') {
       this.engineType = 'lite-single';
       this.threads = 1;
-      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
     } else if (this.engineType === 'large-single') {
       this.engineType = 'lite-single';
-      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
     } else if (this.engineType === 'lite-single') {
       this.engineType = 'asm';
-      this.init(this.onReadyCallback!, this.onErrorCallback || undefined);
     } else {
       console.error('[StockfishManager] All engine options and fallbacks failed.');
+      // Reject everything now that we ran out of options
+      if (savedCurrentTask) {
+        savedCurrentTask.reject(new Error(`All engine fallbacks failed: ${errorMsg}`));
+      }
+      for (const task of savedQueue) {
+        task.reject(new Error(`All engine fallbacks failed: ${errorMsg}`));
+      }
       this.onErrorCallback?.(`Stockfish failed to load: ${errorMsg}. Please try opening the application in a new tab.`);
+      return;
     }
+
+    // Initialize the fallback engine
+    this.init(() => {
+      console.log(`[StockfishManager] Fallback to ${this.engineType} successful!`);
+      // Restore currentTask if it existed by prepending it to the restored queue
+      if (savedCurrentTask) {
+        this.analysisQueue.unshift(savedCurrentTask);
+      }
+      // Trigger the original onReady if registered
+      this.onReadyCallback?.();
+      // Restart processing
+      this.processQueue();
+    }, this.onErrorCallback || undefined);
+
+    // Keep the remaining queue for safe keeping while the new engine is initializing
+    this.analysisQueue = savedQueue;
   }
 
   /**
@@ -129,7 +157,7 @@ export class StockfishManager {
     }
 
     try {
-      const workerUrl = this.getWorkerPath() + '?v=18.0.8';
+      const workerUrl = this.getWorkerPath() + '?v=18.0.10';
       console.log(`[StockfishManager] Initializing ${this.engineType} engine from ${workerUrl}`);
       
       // Instantiate worker
@@ -138,6 +166,11 @@ export class StockfishManager {
       // Listen to worker messages
       this.worker.onmessage = (event: MessageEvent) => {
         this.handleMessage(event.data);
+      };
+
+      this.worker.onmessageerror = (event: MessageEvent) => {
+        console.error('[StockfishManager] Worker message error event:', event);
+        this.handleFallback('Worker message serialization/deserialization error');
       };
 
       this.worker.onerror = (error: ErrorEvent) => {
@@ -235,7 +268,7 @@ export class StockfishManager {
           if (this.currentTask) {
              const err = new Error("Engine locked up");
              this.currentTask.reject(err);
-             this.finishCurrentTask();
+             this.finishCurrentTask(undefined, '', true);
           }
         }, 2000);
       }
@@ -254,29 +287,41 @@ export class StockfishManager {
   /**
    * Finishes the current analysis task and moves to the next
    */
-  private finishCurrentTask(finalEval?: StockfishEvaluation) {
+  private finishCurrentTask(finalEval?: StockfishEvaluation, bestMoveFromLine: string = '', isLockup: boolean = false) {
     if (this.fallbackTimeout) {
       clearTimeout(this.fallbackTimeout);
       this.fallbackTimeout = null;
     }
 
     if (this.currentTask) {
-      if (finalEval) {
-        // Cache the result
-        const cacheKey = `${this.currentTask.fen}|${this.currentTask.depth}`;
+      if (!isLockup) {
+        // Determine the best evaluation to resolve
+        let resolvedEval = finalEval || this.lastEval;
+        if (!resolvedEval) {
+          // Fallback to a safe default if no engine output occurred (e.g. checkmate, draw, or sudden stop)
+          resolvedEval = {
+            depth: this.currentTask.depth,
+            scoreType: 'cp',
+            scoreValue: 0,
+            scoreText: '0.00',
+            nps: 0,
+            pv: '',
+            bestMove: bestMoveFromLine || '(none)',
+            multipv: this.currentTask.multipv
+          };
+        } else if (bestMoveFromLine && !resolvedEval.bestMove) {
+          resolvedEval = { ...resolvedEval, bestMove: bestMoveFromLine };
+        }
+
+        // Cache the result with the correct key that includes multipv
+        const cacheKey = `${this.currentTask.fen}|${this.currentTask.depth}|${this.currentTask.multipv || 1}`;
         if (this.evalCache.size >= this.maxCacheSize) {
           const firstKey = this.evalCache.keys().next().value;
           if (firstKey) this.evalCache.delete(firstKey);
         }
-        this.evalCache.set(cacheKey, finalEval);
+        this.evalCache.set(cacheKey, resolvedEval);
         
-        this.currentTask.resolve(finalEval);
-      } else if (this.lastEval) {
-        // Fallback to lastEval if no final passed
-        this.currentTask.resolve(this.lastEval);
-      } else {
-        // Reject if nothing
-        this.currentTask.reject(new Error("No evaluation found"));
+        this.currentTask.resolve(resolvedEval);
       }
     }
     this.currentTask = null;
@@ -463,9 +508,9 @@ export class StockfishManager {
       if (this.currentTask) {
         if (this.lastEval) {
           // If we had an info evaluation, add the actual bestMove string from engine
-          this.finishCurrentTask({ ...this.lastEval, bestMove });
+          this.finishCurrentTask({ ...this.lastEval, bestMove }, bestMove);
         } else {
-          this.finishCurrentTask();
+          this.finishCurrentTask(undefined, bestMove);
         }
       }
     }

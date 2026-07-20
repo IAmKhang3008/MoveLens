@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, Pause, SkipBack, ChevronLeft, ChevronRight, SkipForward, 
   Sparkles, FileText, Settings, RefreshCw, Cpu, Activity, Info, X, Zap,
-  Globe, Download, Search, Trophy, Award, ChevronDown, Send, Copy
+  Globe, Download, Search, Trophy, Award, ChevronDown, Send, Copy,
+  Volume2, VolumeX, Repeat
 } from 'lucide-react';
 import { Chess } from 'chess.js';
 import { BoardState, BoardSquare, Ply, AnnotationType, GameSummary, Arrow } from '../types';
@@ -352,6 +353,125 @@ export default function ReviewView() {
   const [summary, setSummary] = useState<GameSummary>(initialSummary);
   const [currentPlyIndex, setCurrentPlyIndex] = useState<number>(0); // 0 = start position, 1 = first move
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chess_muted') === 'true';
+    }
+    return false;
+  });
+
+  const soundsRef = useRef<Record<string, HTMLAudioElement>>({});
+  const lastPlayedIndexRef = useRef<number>(0);
+  const pliesRef = useRef<Ply[]>(plies);
+
+  // Preload sounds on mount
+  useEffect(() => {
+    const soundNames = [
+      'move-self',
+      'capture',
+      'move-check',
+      'castle',
+      'promote',
+      'game-end',
+      'game-start',
+      'illegal'
+    ];
+    const soundInstances: Record<string, HTMLAudioElement> = {};
+    soundNames.forEach(name => {
+      const audio = new Audio(`/sounds/${name}.mp3`);
+      audio.preload = 'auto';
+      soundInstances[name] = audio;
+    });
+    soundsRef.current = soundInstances;
+
+    return () => {
+      Object.values(soundInstances).forEach(audio => {
+        audio.pause();
+        audio.src = '';
+      });
+    };
+  }, []);
+
+  const toggleMute = () => {
+    setIsMuted(prev => {
+      const newVal = !prev;
+      localStorage.setItem('chess_muted', String(newVal));
+      return newVal;
+    });
+  };
+
+  const playIllegalSound = () => {
+    if (isMuted) return;
+    const audio = soundsRef.current['illegal'];
+    if (audio) {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    }
+  };
+
+  // Sound effects listener based on move transitions
+  useEffect(() => {
+    const prevIndex = lastPlayedIndexRef.current;
+    const prevPlies = pliesRef.current;
+
+    lastPlayedIndexRef.current = currentPlyIndex;
+    pliesRef.current = plies;
+
+    let checkmateTimeoutId: any = null;
+
+    const playSound = (soundName: string) => {
+      if (isMuted) return;
+      const audio = soundsRef.current[soundName];
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(err => {
+          console.warn(`Sound playback failed for ${soundName}:`, err);
+        });
+      }
+    };
+
+    // If plies list changed, it means a new game loaded! Play game-start!
+    if (prevPlies !== plies) {
+      playSound('game-start');
+      return;
+    }
+
+    if (prevIndex === currentPlyIndex) return;
+
+    if (currentPlyIndex === 0) {
+      playSound('game-start');
+      return;
+    }
+
+    const activePly = plies[currentPlyIndex - 1];
+    if (!activePly) return;
+
+    const san = activePly.san || '';
+    if (san.includes('#')) {
+      // check sound (first) + game end sound (second) = checkmate sound
+      playSound('move-check');
+      checkmateTimeoutId = setTimeout(() => {
+        playSound('game-end');
+      }, 450);
+    } else if (san.includes('+')) {
+      playSound('move-check');
+    } else if (san.includes('O-O') || san.includes('O-O-O')) {
+      playSound('castle');
+    } else if (san.includes('=')) {
+      playSound('promote');
+    } else if (san.includes('x')) {
+      playSound('capture');
+    } else {
+      playSound('move-self');
+    }
+
+    return () => {
+      if (checkmateTimeoutId) {
+        clearTimeout(checkmateTimeoutId);
+      }
+    };
+  }, [currentPlyIndex, plies, isMuted]);
+
   const [activeTab, setActiveTab] = useState<'moves' | 'load'>('moves');
   const [pgnText, setPgnText] = useState<string>('');
   const [loadType, setLoadType] = useState<'pgn' | 'fen' | 'chesscom' | 'lichess'>('lichess');
@@ -400,6 +520,7 @@ export default function ReviewView() {
   const [analysisMode, setAnalysisMode] = useState<'continuation' | 'alternative'>('continuation');
   const [liveArrows, setLiveArrows] = useState<Arrow[]>([]);
   const [userArrows, setUserArrows] = useState<Arrow[]>([]);
+  const [orientation, setOrientation] = useState<'white' | 'black'>('white');
   const liveEngineRef = useRef<StockfishManager | null>(null);
   const activeMovesRef = useRef<Record<number, { uci: string; depth: number }>>({});
 
@@ -474,8 +595,24 @@ export default function ReviewView() {
     }
 
     // Determine current FEN to analyze
-    const activePly = currentPlyIndex > 0 ? plies[currentPlyIndex - 1] : null;
-    const activeFen = activePly ? activePly.fen : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let activeFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let playedMoveUci = "";
+
+    if (analysisMode === 'continuation') {
+      const activePly = currentPlyIndex > 0 ? plies[currentPlyIndex - 1] : null;
+      if (activePly) {
+        activeFen = activePly.fen;
+      }
+    } else if (analysisMode === 'alternative') {
+      if (currentPlyIndex > 0) {
+        const prevPly = currentPlyIndex > 1 ? plies[currentPlyIndex - 2] : null;
+        activeFen = prevPly ? prevPly.fen : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        playedMoveUci = plies[currentPlyIndex - 1].uci;
+      } else {
+        // If no move has been played, alternative is just the best moves from start position
+        activeFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+      }
+    }
 
     if (!activeFen) {
       setLiveArrows([]);
@@ -493,16 +630,16 @@ export default function ReviewView() {
       liveEngineRef.current = manager;
       manager.init(() => {
         // Ready! Configure and start evaluation
-        startLiveEvaluation(manager, activeFen);
+        startLiveEvaluation(manager, activeFen, playedMoveUci);
       });
     } else {
       // Engine already exists, just stop current search and evaluate new position
       const manager = liveEngineRef.current;
       manager.stop();
-      startLiveEvaluation(manager, activeFen);
+      startLiveEvaluation(manager, activeFen, playedMoveUci);
     }
 
-    function startLiveEvaluation(manager: StockfishManager, fen: string) {
+    function startLiveEvaluation(manager: StockfishManager, fen: string, playedUci: string) {
       // Set MultiPV based on the selected mode
       const multiPVVal = analysisMode === 'alternative' ? 3 : 1;
       
@@ -528,6 +665,10 @@ export default function ReviewView() {
             const newArrows = sortedMvs.map((mIdx) => {
               const moveUci = activeMovesRef.current[mIdx].uci;
               
+              if (analysisMode === 'alternative' && moveUci === playedUci) {
+                return null;
+              }
+
               // Color gradation as requested:
               // Best = rgb(0, 220, 0)
               // 2nd Best = rgb(0, 160, 0)
@@ -544,7 +685,7 @@ export default function ReviewView() {
                 endSquare: moveUci.substring(2, 4),
                 color
               };
-            });
+            }).filter(Boolean) as Arrow[];
 
             setLiveArrows(newArrows);
           }
@@ -564,18 +705,35 @@ export default function ReviewView() {
       const activeTag = document.activeElement?.tagName;
       if (activeTag === 'TEXTAREA' || activeTag === 'INPUT' || activeTag === 'SELECT') return;
 
+      if (e.key === 'f' || e.key === 'F') {
+        setOrientation(prev => prev === 'white' ? 'black' : 'white');
+        return;
+      }
+
       if (e.key === 'ArrowRight') {
         setIsPlaying(false);
-        setCurrentPlyIndex(prev => Math.min(totalPlies, prev + 1));
+        setCurrentPlyIndex(prev => {
+          if (prev >= totalPlies) {
+            playIllegalSound();
+            return prev;
+          }
+          return prev + 1;
+        });
       } else if (e.key === 'ArrowLeft') {
         setIsPlaying(false);
-        setCurrentPlyIndex(prev => Math.max(0, prev - 1));
+        setCurrentPlyIndex(prev => {
+          if (prev <= 0) {
+            playIllegalSound();
+            return prev;
+          }
+          return prev - 1;
+        });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [totalPlies]);
+  }, [totalPlies, isMuted]);
 
   // Auto playback loop
   useEffect(() => {
@@ -604,6 +762,7 @@ export default function ReviewView() {
 
   // Scroll active move into view inside the move list
   useEffect(() => {
+    if (isPlaying) return; // Completely remove auto-scroll when moves are playing automatically
     if (currentPlyIndex > 0 && moveListRef.current) {
       const activeElement = document.getElementById(`ply-row-${currentPlyIndex}`);
       if (activeElement) {
@@ -613,17 +772,27 @@ export default function ReviewView() {
         });
       }
     }
-  }, [currentPlyIndex]);
+  }, [currentPlyIndex, isPlaying]);
 
   // Playback handlers
   const handleFirst = () => {
     setIsPlaying(false);
-    setCurrentPlyIndex(0);
+    if (currentPlyIndex === 0) {
+      playIllegalSound();
+    } else {
+      setCurrentPlyIndex(0);
+    }
   };
 
   const handlePrev = () => {
     setIsPlaying(false);
-    setCurrentPlyIndex(prev => Math.max(0, prev - 1));
+    setCurrentPlyIndex(prev => {
+      if (prev <= 0) {
+        playIllegalSound();
+        return 0;
+      }
+      return prev - 1;
+    });
   };
 
   const handleTogglePlay = () => {
@@ -632,12 +801,22 @@ export default function ReviewView() {
 
   const handleNext = () => {
     setIsPlaying(false);
-    setCurrentPlyIndex(prev => Math.min(totalPlies, prev + 1));
+    setCurrentPlyIndex(prev => {
+      if (prev >= totalPlies) {
+        playIllegalSound();
+        return totalPlies;
+      }
+      return prev + 1;
+    });
   };
 
   const handleLast = () => {
     setIsPlaying(false);
-    setCurrentPlyIndex(totalPlies);
+    if (currentPlyIndex === totalPlies) {
+      playIllegalSound();
+    } else {
+      setCurrentPlyIndex(totalPlies);
+    }
   };
 
   // Group plies into moves (white + black pairs)
@@ -1752,8 +1931,8 @@ export default function ReviewView() {
     const scoreText = (currentPly as any).scoreText || currentEvalInfo?.scoreText;
     if (!scoreText) return 50;
 
-    if (scoreText.startsWith('M')) {
-      return scoreText.includes('-') ? 5 : 95; // mate
+    if (scoreText.startsWith('M') || scoreText.startsWith('-M')) {
+      return scoreText.includes('-') ? 0 : 100; // mate
     }
 
     const score = parseFloat(scoreText);
@@ -1762,16 +1941,12 @@ export default function ReviewView() {
     // Convert pawns score to centipawn score
     const cp = score * 100;
     
-    // Sigmoid (Logistic) Mapping as recommended in professional analysis:
-    // fill = 2 / (1 + e^(-cp / 400)) - 1
-    const scale = 400;
-    const raw = 2 / (1 + Math.exp(-cp / scale)) - 1;
+    // Sigmoid function (Lichess & Chess.com standard):
+    // P(win) = 1 / (1 + Math.exp(-0.0035 * cp));
+    const winProb = 1 / (1 + Math.exp(-0.0035 * cp));
     
-    // Clamp to [-1, 1]
-    const clamped = Math.max(-1, Math.min(1, raw));
-    
-    // Map from [-1, 1] to [5%, 95%] height range
-    const percent = 5 + ((clamped + 1) / 2) * 90;
+    // Map from [0, 1] to [5%, 95%] height range
+    const percent = 5 + winProb * 90;
     return percent;
   };
 
@@ -1854,12 +2029,12 @@ export default function ReviewView() {
           <div className="flex gap-4.5 w-full items-stretch justify-center max-w-[530px]">
             
             {/* 1. PROFESSIONAL VERTICAL EVALUATION BAR */}
-            <div className="w-10 bg-neutral-900 rounded-2xl overflow-hidden flex flex-col justify-between border border-neutral-800/80 shadow-inner relative" title="Evaluation meter">
-              {/* Black Fill (top) */}
+            <div className={`w-10 bg-neutral-900 rounded-2xl overflow-hidden flex ${orientation === 'white' ? 'flex-col' : 'flex-col-reverse'} justify-between border border-neutral-800/80 shadow-inner relative`} title="Evaluation meter">
+              {/* Black Fill (top if white orientation) */}
               <div className="flex-1 bg-neutral-950 transition-all duration-300 relative">
-                {/* Score display text at top of bar if evaluation is negative */}
+                {/* Score display text if evaluation is negative */}
                 {evalPercentage < 50 && (
-                  <span className="absolute top-2 left-0 right-0 text-xs font-bold font-mono text-white text-center select-none z-10 leading-none px-0.5 truncate">
+                  <span className={`absolute ${orientation === 'white' ? 'top-2' : 'bottom-2'} left-0 right-0 text-xs font-bold font-mono text-white text-center select-none z-10 leading-none px-0.5 truncate`}>
                     {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText) : '0.00'}
                   </span>
                 )}
@@ -1868,14 +2043,14 @@ export default function ReviewView() {
               {/* Separation line (equal mark) */}
               <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-neutral-700/50 z-20 pointer-events-none" />
 
-              {/* White Fill (bottom) */}
+              {/* White Fill (bottom if white orientation) */}
               <div 
-                className="bg-neutral-100 transition-all duration-300 relative flex flex-col justify-end"
+                className={`bg-neutral-100 transition-all duration-300 relative flex ${orientation === 'white' ? 'flex-col' : 'flex-col-reverse'} justify-end`}
                 style={{ height: `${evalPercentage}%` }}
               >
-                {/* Score display text at bottom of bar if evaluation is positive */}
+                {/* Score display text if evaluation is positive */}
                 {evalPercentage >= 50 && (
-                  <span className="absolute bottom-2 left-0 right-0 text-xs font-bold font-mono text-neutral-900 text-center select-none z-10 leading-none px-0.5 truncate">
+                  <span className={`absolute ${orientation === 'white' ? 'bottom-2' : 'top-2'} left-0 right-0 text-xs font-bold font-mono text-neutral-900 text-center select-none z-10 leading-none px-0.5 truncate`}>
                     {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText || '0.00') : '0.00'}
                   </span>
                 )}
@@ -1890,6 +2065,7 @@ export default function ReviewView() {
                 fromSquare={fromSquare}
                 toSquare={toSquare}
                 annotation={currentPly?.annotation}
+                orientation={orientation}
                 arrows={(() => {
                   const seen = new Set<string>();
                   return [...userArrows, ...liveArrows].filter((arr) => {
@@ -1983,7 +2159,7 @@ export default function ReviewView() {
                         : 'text-neutral-500 hover:text-neutral-350'
                     }`}
                   >
-                    Top Alternatives
+                    Top Alternative
                   </button>
                 </div>
               </div>
@@ -1993,6 +2169,14 @@ export default function ReviewView() {
           {/* PLAYBACK CONTROL DECK */}
           <div className="w-full max-w-[520px] flex flex-col items-center gap-4 bg-[#141517] border border-neutral-850 rounded-2xl p-4.5 shadow-xl">
             <div className="flex items-center justify-center gap-2.5 w-full">
+              <button
+                onClick={() => setOrientation(prev => prev === 'white' ? 'black' : 'white')}
+                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                title="Flip Board"
+              >
+                <Repeat className="w-4.5 h-4.5" />
+              </button>
+
               <button
                 onClick={handleFirst}
                 disabled={currentPlyIndex === 0}
@@ -2040,11 +2224,19 @@ export default function ReviewView() {
               >
                 <SkipForward className="w-4 h-4" />
               </button>
-            </div>
 
-            <p className="text-[10px] text-neutral-500 text-center select-none font-mono tracking-wide">
-              PRO TIP: Use your keyboard arrow keys <kbd className="px-1 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-400">←</kbd> and <kbd className="px-1 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-400">→</kbd> to control the playback.
-            </p>
+              <button
+                onClick={toggleMute}
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer border active:scale-95 ${
+                  isMuted 
+                    ? 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:text-neutral-400 hover:bg-neutral-850' 
+                    : 'bg-neutral-900 border-neutral-800 text-emerald-400 hover:text-emerald-350 hover:bg-neutral-800/80'
+                }`}
+                title={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+              >
+                {isMuted ? <VolumeX className="w-4.5 h-4.5" /> : <Volume2 className="w-4.5 h-4.5" />}
+              </button>
+            </div>
           </div>
 
         </div>

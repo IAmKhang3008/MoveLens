@@ -132,6 +132,39 @@ export default function Chessboard({
     }));
   }, [arrows]);
 
+  const highlightConfig = React.useMemo(() => {
+    if (!fromSquareAlg || !toSquareAlg) {
+      return { lastMove: false, custom: new Map<string, string>() };
+    }
+
+    const configMap: Record<string, { move: string; from: string }> = {
+      normal: { move: 'normal-move', from: 'normal-from' },
+      brilliant: { move: 'brilliant-move', from: 'brilliant-from' },
+      great: { move: 'great-move', from: 'great-from' },
+      best: { move: 'best-move', from: 'best-from' },
+      excellent: { move: 'excellent-move', from: 'excellent-from' },
+      good: { move: 'good-move', from: 'good-from' },
+      inaccuracy: { move: 'inaccuracy-move', from: 'inaccuracy-from' },
+      mistake: { move: 'mistake-move', from: 'mistake-from' },
+      blunder: { move: 'blunder-move', from: 'blunder-from' },
+      miss: { move: 'miss-move', from: 'miss-from' },
+      forced: { move: 'forced-move', from: 'forced-from' },
+      book: { move: 'book-move', from: 'book-from' },
+    };
+
+    const activeAnnotation = annotation && configMap[annotation] ? annotation : 'normal';
+    const highlight = configMap[activeAnnotation];
+
+    const customMap = new Map<string, string>();
+    customMap.set(fromSquareAlg, highlight.from);
+    customMap.set(toSquareAlg, highlight.move);
+
+    return {
+      lastMove: false,
+      custom: customMap
+    };
+  }, [annotation, fromSquareAlg, toSquareAlg]);
+
   // Initialize and update Chessground instance
   useEffect(() => {
     if (!boardRef.current) return;
@@ -161,7 +194,11 @@ export default function Chessboard({
         orientation: orientation,
         viewOnly: !arePiecesDraggable,
         coordinates: true,
-        lastMove: fromSquareAlg && toSquareAlg ? [fromSquareAlg as any, toSquareAlg as any] : undefined,
+        lastMove: highlightConfig.lastMove && fromSquareAlg && toSquareAlg ? [fromSquareAlg as any, toSquareAlg as any] : undefined,
+        highlight: {
+          lastMove: highlightConfig.lastMove,
+          custom: highlightConfig.custom as any,
+        },
         drawable: {
           enabled: true,
           visible: true,
@@ -174,13 +211,17 @@ export default function Chessboard({
         fen: resolvedFen,
         orientation: orientation,
         viewOnly: !arePiecesDraggable,
-        lastMove: fromSquareAlg && toSquareAlg ? [fromSquareAlg as any, toSquareAlg as any] : undefined,
+        lastMove: highlightConfig.lastMove && fromSquareAlg && toSquareAlg ? [fromSquareAlg as any, toSquareAlg as any] : undefined,
+        highlight: {
+          lastMove: highlightConfig.lastMove,
+          custom: highlightConfig.custom as any,
+        },
         drawable: {
           autoShapes: autoShapes,
         },
       });
     }
-  }, [resolvedFen, orientation, arePiecesDraggable, fromSquareAlg, toSquareAlg, autoShapes, onArrowsChange]);
+  }, [resolvedFen, orientation, arePiecesDraggable, fromSquareAlg, toSquareAlg, autoShapes, onArrowsChange, highlightConfig]);
 
   // Clean up Chessground on unmount
   useEffect(() => {
@@ -197,8 +238,10 @@ export default function Chessboard({
       ref={containerRef}
       className="relative aspect-square w-full max-w-[440px] md:max-w-[480px] bg-[#1a1a1a] p-3 rounded-2xl border border-neutral-800 shadow-2xl flex flex-col justify-between select-none"
     >
-      <div className="relative w-full h-full rounded-lg overflow-hidden border border-neutral-900">
-        <div ref={boardRef} className="cg-wrap brown cburnett w-full h-full" />
+      <div className="relative w-full h-full rounded-lg border border-neutral-900">
+        <div className="w-full h-full rounded-lg overflow-hidden">
+          <div ref={boardRef} className="cg-wrap brown cburnett w-full h-full" />
+        </div>
         
         {/* Absolute 3D Move Annotation Badge Overlay */}
         {toSquare && annotation && annotation !== 'normal' && (() => {

@@ -32,3 +32,138 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* ========================================
+   Chess.com Style Move Highlighting
+   ======================================== */
+
+/* --- BRILLIANT MOVE (!!) --- */
+/* Target & Origin square color: #21aaa3 */
+.brilliant-move,
+.brilliant-from {
+  background-color: #21aaa3 !important;
+}
+.brilliant-move {
+  box-shadow: inset 0 0 0 2px rgba(33, 170, 163, 0.8) !important;
+}
+
+/* --- GREAT MOVE (!) --- */
+/* Target & Origin square color: #5f8cad */
+.great-move,
+.great-from {
+  background-color: #5f8cad !important;
+}
+.great-move {
+  box-shadow: inset 0 0 0 2px rgba(95, 140, 173, 0.8) !important;
+}
+
+/* --- BEST MOVE (✓) --- */
+/* Target & Origin square color: #97bb4b */
+.best-move,
+.best-from {
+  background-color: #97bb4b !important;
+}
+.best-move {
+  box-shadow: inset 0 0 0 2px rgba(151, 187, 75, 0.8) !important;
+}
+
+/* --- EXCELLENT MOVE (●) --- */
+/* Target & Origin square color: #94bd47 */
+.excellent-move,
+.excellent-from {
+  background-color: #94bd47 !important;
+}
+.excellent-move {
+  box-shadow: inset 0 0 0 2px rgba(148, 189, 71, 0.8) !important;
+}
+
+/* --- GOOD MOVE --- */
+/* Target & Origin square color: #94ad86 */
+.good-move,
+.good-from {
+  background-color: #94ad86 !important;
+}
+.good-move {
+  box-shadow: inset 0 0 0 2px rgba(148, 173, 134, 0.8) !important;
+}
+
+/* --- INACCURACY MOVE (?) --- */
+/* Target & Origin square color: #f4bc41 */
+.inaccuracy-move,
+.inaccuracy-from {
+  background-color: #f4bc41 !important;
+}
+.inaccuracy-move {
+  box-shadow: inset 0 0 0 2px rgba(244, 188, 65, 0.8) !important;
+}
+
+/* --- MISTAKE MOVE (?) --- */
+/* Target & Origin square color: #e38c25 */
+.mistake-move,
+.mistake-from {
+  background-color: #e38c25 !important;
+}
+.mistake-move {
+  box-shadow: inset 0 0 0 2px rgba(227, 140, 37, 0.8) !important;
+}
+
+/* --- BLUNDER MOVE (??) --- */
+/* Target & Origin square color: #c7322e */
+.blunder-move,
+.blunder-from {
+  background-color: #c7322e !important;
+}
+.blunder-move {
+  box-shadow: inset 0 0 0 2px rgba(199, 50, 46, 0.8) !important;
+}
+
+/* --- MISS MOVE --- */
+/* Target & Origin square color: #fe7566 */
+.miss-move,
+.miss-from {
+  background-color: #fe7566 !important;
+}
+.miss-move {
+  box-shadow: inset 0 0 0 2px rgba(254, 117, 102, 0.8) !important;
+}
+
+/* --- FORCED MOVE --- */
+/* Target & Origin square color: #95ad89 */
+.forced-move,
+.forced-from {
+  background-color: #95ad89 !important;
+}
+.forced-move {
+  box-shadow: inset 0 0 0 2px rgba(149, 173, 137, 0.8) !important;
+}
+
+/* --- BOOK MOVE (≡) --- */
+/* Target & Origin square color: #a68a62 */
+.book-move,
+.book-from {
+  background-color: #a68a62 !important;
+}
+.book-move {
+  box-shadow: inset 0 0 0 2px rgba(166, 138, 98, 0.8) !important;
+}
+
+/* --- NORMAL MOVE --- */
+/* Target & Origin square color: #ecee82 (soft yellow-green) */
+.normal-move,
+.normal-from {
+  background-color: #ecee82 !important;
+}
+.normal-move {
+  box-shadow: inset 0 0 0 2px rgba(236, 238, 130, 0.8) !important;
+}
+
+/* ========================================
+   Helper: Prevent highlight from blocking piece visibility
+   ======================================== */
+[class*="-move"] {
+  opacity: 0.85 !important;
+}
+
+[class*="-from"] {
+  opacity: 0.20 !important; /* 80% transparent (lighter/faded) */
+}
