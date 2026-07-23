@@ -409,13 +409,19 @@ export default function ReviewView() {
     }
   };
 
+  const playGameStartSound = () => {
+    if (isMuted) return;
+    const audio = soundsRef.current['game-start'];
+    if (audio) {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    }
+  };
+
   // Sound effects listener based on move transitions
   useEffect(() => {
     const prevIndex = lastPlayedIndexRef.current;
-    const prevPlies = pliesRef.current;
-
     lastPlayedIndexRef.current = currentPlyIndex;
-    pliesRef.current = plies;
 
     let checkmateTimeoutId: any = null;
 
@@ -430,18 +436,7 @@ export default function ReviewView() {
       }
     };
 
-    // If plies list changed, it means a new game loaded! Play game-start!
-    if (prevPlies !== plies) {
-      playSound('game-start');
-      return;
-    }
-
     if (prevIndex === currentPlyIndex) return;
-
-    if (currentPlyIndex === 0) {
-      playSound('game-start');
-      return;
-    }
 
     const activePly = plies[currentPlyIndex - 1];
     if (!activePly) return;
@@ -473,14 +468,43 @@ export default function ReviewView() {
   }, [currentPlyIndex, plies, isMuted]);
 
   const [activeTab, setActiveTab] = useState<'moves' | 'load'>('moves');
-  const [pgnText, setPgnText] = useState<string>('');
-  const [loadType, setLoadType] = useState<'pgn' | 'fen' | 'chesscom' | 'lichess'>('lichess');
+
+  // Persistent memory state for username, PGN, FEN, and load type
+  const [pgnText, setPgnTextState] = useState<string>(() => localStorage.getItem('chess_saved_pgn') || '');
+  const [fenText, setFenTextState] = useState<string>(() => localStorage.getItem('chess_saved_fen') || '');
+  const [importUsername, setImportUsernameState] = useState<string>(() => localStorage.getItem('chess_saved_username') || '');
+  const [loadType, setLoadTypeState] = useState<'pgn' | 'fen' | 'chesscom' | 'lichess'>(() => {
+    const saved = localStorage.getItem('chess_saved_load_type');
+    if (saved === 'pgn' || saved === 'fen' || saved === 'chesscom' || saved === 'lichess') {
+      return saved;
+    }
+    return 'lichess';
+  });
+
+  const setPgnText = (val: string) => {
+    setPgnTextState(val);
+    localStorage.setItem('chess_saved_pgn', val);
+  };
+
+  const setFenText = (val: string) => {
+    setFenTextState(val);
+    localStorage.setItem('chess_saved_fen', val);
+  };
+
+  const setImportUsername = (val: string) => {
+    setImportUsernameState(val);
+    localStorage.setItem('chess_saved_username', val);
+  };
+
+  const setLoadType = (val: 'pgn' | 'fen' | 'chesscom' | 'lichess') => {
+    setLoadTypeState(val);
+    localStorage.setItem('chess_saved_load_type', val);
+  };
+
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
-  const [fenText, setFenText] = useState<string>('');
   const [isGameModalOpen, setIsGameModalOpen] = useState<boolean>(false);
 
   // Chess.com and Lichess live import state
-  const [importUsername, setImportUsername] = useState<string>('');
   const [importPlatform, setImportPlatform] = useState<'chesscom' | 'lichess'>('lichess');
   const [importMonth, setImportMonth] = useState<number>(new Date().getMonth() + 1); // 1-12
   const [importYear, setImportYear] = useState<number>(new Date().getFullYear());
@@ -760,19 +784,8 @@ export default function ReviewView() {
     };
   }, [isPlaying, totalPlies]);
 
-  // Scroll active move into view inside the move list
-  useEffect(() => {
-    if (isPlaying) return; // Completely remove auto-scroll when moves are playing automatically
-    if (currentPlyIndex > 0 && moveListRef.current) {
-      const activeElement = document.getElementById(`ply-row-${currentPlyIndex}`);
-      if (activeElement) {
-        activeElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-        });
-      }
-    }
-  }, [currentPlyIndex, isPlaying]);
+  // Removed move list auto-scroll per user request
+
 
   // Playback handlers
   const handleFirst = () => {
@@ -1542,6 +1555,7 @@ export default function ReviewView() {
       setPlies(parsedPlies);
       setCurrentPlyIndex(0);
       setActiveTab('moves');
+      playGameStartSound();
 
       // 2. Start Stockfish engine
       setAnalysisStep(`Booting up ${engineType} engine...`);

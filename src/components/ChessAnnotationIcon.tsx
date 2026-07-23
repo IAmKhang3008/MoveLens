@@ -36,6 +36,10 @@ export default function ChessAnnotationIcon({
     return null;
   }
 
+  // Book and Miss PNGs have less transparent margin in their hosted image assets,
+  // so scaling them down slightly aligns their optical visual size with brilliant, great, best, etc.
+  const isOversizedPNG = lookupKey === 'book' || lookupKey === 'miss' || lookupKey === 'missed';
+
   return (
     <div 
       className={`inline-block select-none shrink-0 pointer-events-none vertical-align-middle ${className}`} 
@@ -44,7 +48,7 @@ export default function ChessAnnotationIcon({
       <img
         src={imgSrc}
         alt={`${type} annotation`}
-        className="w-full h-full object-contain"
+        className={`w-full h-full object-contain ${isOversizedPNG ? 'scale-[0.84]' : ''}`}
         loading="lazy"
         crossOrigin="anonymous"
         referrerPolicy="no-referrer"

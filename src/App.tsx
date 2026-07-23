@@ -1,23 +1,28 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Menu, X, Eye, HelpCircle } from 'lucide-react';
+import { Search, Menu, X, Eye, HelpCircle, Globe } from 'lucide-react';
 import LandingView from './components/LandingView';
 import ReviewView from './components/ReviewView';
 import AboutView from './components/AboutView';
 import GuideView from './components/GuideView';
+import TermsEn from './components/TermsEn';
+import TermsVi from './components/TermsVi';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'home' | 'review' | 'about' | 'guide'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'review' | 'about' | 'guide' | 'terms'>('home');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [direction, setDirection] = useState<number>(1); // 1 = forward (sliding left), -1 = backward (sliding right)
+  const [direction, setDirection] = useState<number>(1);
+  const [termsLanguage, setTermsLanguage] = useState<'en' | 'vi'>('en');
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+ // 1 = forward (sliding left), -1 = backward (sliding right)
 
   // Refs for tracking swipe gestures on mobile
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchEndRef = useRef<{ x: number; y: number } | null>(null);
 
   // Simple handler to switch page views
-  const navigateTo = (view: 'home' | 'review' | 'about' | 'guide') => {
-    const views: ('home' | 'review' | 'about' | 'guide')[] = ['home', 'review', 'about', 'guide'];
+  const navigateTo = (view: 'home' | 'review' | 'about' | 'guide' | 'terms') => {
+    const views: ('home' | 'review' | 'about' | 'guide' | 'terms')[] = ['home', 'review', 'about', 'guide', 'terms'];
     const fromIndex = views.indexOf(currentView);
     const toIndex = views.indexOf(view);
     
@@ -168,7 +173,42 @@ export default function App() {
           </nav>
 
           {/* Right Header Controls (Avatar placeholder & Mobile toggle) */}
-          <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4">
+            {currentView === 'terms' && (
+              <div className="relative">
+                <button 
+                  onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                  className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors flex items-center gap-1.5"
+                >
+                  <Globe className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase">{termsLanguage}</span>
+                </button>
+                <AnimatePresence>
+                  {isLangDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 mt-2 w-36 bg-[#13151A] border border-neutral-800 rounded-xl shadow-2xl py-2 z-50 origin-top-right"
+                    >
+                      <button 
+                        onClick={() => { setTermsLanguage('en'); setIsLangDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-neutral-800/80 transition-colors ${termsLanguage === 'en' ? 'text-white font-bold' : 'text-neutral-400'}`}
+                      >
+                        <span className="text-lg leading-none">🇬🇧</span> English
+                      </button>
+                      <button 
+                        onClick={() => { setTermsLanguage('vi'); setIsLangDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-neutral-800/80 transition-colors ${termsLanguage === 'vi' ? 'text-white font-bold' : 'text-neutral-400'}`}
+                      >
+                        <span className="text-lg leading-none">🇻🇳</span> Vietnamese
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
             {/* User profile avatar placeholder circle */}
             <div 
               className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#2C2C2C] to-[#3A3A3A] border border-neutral-700/60 flex items-center justify-center cursor-help shadow-inner group relative"
@@ -300,6 +340,10 @@ export default function App() {
             {currentView === 'guide' && (
               <GuideView />
             )}
+
+            {currentView === 'terms' && (
+              termsLanguage === 'en' ? <TermsEn /> : <TermsVi />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -323,8 +367,8 @@ export default function App() {
           {/* Links cluster */}
           <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-neutral-500">
             <a href="#privacy" className="hover:text-blue-400 transition-colors" onClick={(e) => e.preventDefault()}>Privacy</a>
-            <a href="#terms" className="hover:text-blue-400 transition-colors" onClick={(e) => e.preventDefault()}>Terms</a>
-            <a href="#contact" className="hover:text-blue-400 transition-colors" onClick={(e) => e.preventDefault()}>Contact</a>
+            <a href="#terms" className="hover:text-blue-400 transition-colors" onClick={(e) => { e.preventDefault(); navigateTo('terms'); }}>Terms</a>
+            <a href="mailto:movelens@proton.me" className="hover:text-blue-400 transition-colors">Contact</a>
           </div>
         </div>
 

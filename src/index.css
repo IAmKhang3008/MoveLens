@@ -165,5 +165,5 @@
 }
 
 [class*="-from"] {
-  opacity: 0.20 !important; /* 80% transparent (lighter/faded) */
+  opacity: 0.47 !important; /* 45% lighter than destination */
 }
