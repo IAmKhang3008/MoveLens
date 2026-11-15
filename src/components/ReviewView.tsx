@@ -490,9 +490,9 @@ export default function ReviewView() {
 
   const categories: { key: AnnotationType; label: string; textClass: string }[] = [
     { key: 'brilliant', label: 'Brilliant', textClass: 'text-cyan-400' },
-    { key: 'great', label: 'Great', textClass: 'text-emerald-400' },
+    { key: 'great', label: 'Great', textClass: 'text-blue-400' },
     { key: 'best', label: 'Best', textClass: 'text-green-400' },
-    { key: 'excellent', label: 'Excellent', textClass: 'text-blue-400' },
+    { key: 'excellent', label: 'Excellent', textClass: 'text-emerald-400' },
     { key: 'good', label: 'Good', textClass: 'text-teal-400' },
     { key: 'book', label: 'Book', textClass: 'text-sky-300' },
     { key: 'inaccuracy', label: 'Inaccuracy', textClass: 'text-amber-400' },
@@ -604,7 +604,7 @@ export default function ReviewView() {
     };
   }, [currentPlyIndex, plies, isMuted]);
 
-  const [panelTab, setPanelTab] = useState<'moves' | 'overview' | 'load'>('moves');
+  const [panelTab, setPanelTab] = useState<'overview' | 'load' | 'moves'>('overview');
   const [isDesktopLg, setIsDesktopLg] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
@@ -1539,20 +1539,13 @@ export default function ReviewView() {
       return 'great';
     }
 
-    // Miss (Missed Win / Missed Opportunity)
-    const isMiss = (() => {
-      // Must have missed a significant opportunity (high drop / centipawn loss)
-      if (drop < 100) return false;
-
-      // 1. Classic Missed Win: We had a winning position, but let it slip
-      const classicMissedWin = perspectiveLastScore >= 200 && perspectiveCurrentScore < 50;
-
-      // 2. Tactical Miss: Opponent made a significant error (opponentDrop >= 150), and we failed to punish it
-      // but our own position did not become totally lost (perspectiveCurrentScore >= -150)
-      const tacticalMiss = (opponentDrop && opponentDrop >= 150) && (perspectiveCurrentScore >= -150);
-
-      return classicMissedWin || tacticalMiss;
-    })();
+    // Miss (Missed Win): only when player held a clear winning position (+2.00 pawns or forced mate)
+    // and let the evaluation bar drop to equal or worse (<= +0.50 pawns).
+    const isMiss =
+      !isBest &&
+      drop >= 150 &&
+      perspectiveLastScore >= 200 &&
+      perspectiveCurrentScore <= 50;
 
     if (isMiss) {
       return 'miss';
@@ -1612,7 +1605,7 @@ export default function ReviewView() {
       case 'mistake':
         return `A significant mistake. Playing ${san} gives ${opponent} a chance to equalize or gain ground. Evaluation slips by ${absDropPawns} pawns. Better was ${bestMove || 'a different line'}.`;
       case 'miss':
-        return `A missed opportunity! ${player} plays ${san}, missing a crucial tactic or advantage. Evaluation swings by ${absDropPawns} pawns.`;
+        return `A missed win! ${player} plays ${san}, letting a winning advantage slip to equal or worse (${absDropPawns} pawns lost). Better was ${bestMove || 'the winning continuation'}.`;
       case 'blunder':
         return `A critical blunder! ${player} completely misses a defensive resource or drops major material with ${san}. Position evaluation swings by ${absDropPawns} pawns in ${opponent}'s favor!`;
       case 'book':
@@ -1730,10 +1723,10 @@ export default function ReviewView() {
         });
       }
 
-      // Show the initial moves table immediately to keep the UI interactive
+      // Show the initial moves while keeping Load progress view visible during analysis
       setPlies(parsedPlies);
       setCurrentPlyIndex(0);
-      setPanelTab('moves');
+      setPanelTab('load');
       playGameStartSound();
 
       // 2. Start Stockfish engine
@@ -1809,10 +1802,13 @@ export default function ReviewView() {
       blackFlair: undefined,
     });
 
+    const isValidLichessUsername = (name?: string) =>
+      !!name && /^[a-zA-Z0-9_-]{2,}$/.test(name.trim());
+
     // Concurrently fetch profiles from Lichess to get flair emojis if applicable
     const whiteUsername = headers.White;
     const blackUsername = headers.Black;
-    if (whiteUsername && blackUsername) {
+    if (isValidLichessUsername(whiteUsername) && isValidLichessUsername(blackUsername)) {
       const whiteCacheKey = `lichess-${whiteUsername.trim().toLowerCase()}`;
       const blackCacheKey = `lichess-${blackUsername.trim().toLowerCase()}`;
 
@@ -1906,6 +1902,7 @@ export default function ReviewView() {
         setIsAnalyzing(false);
         setAnalysisProgress(100);
         setCurrentPlyIndex(1); // Nav to first move
+        setPanelTab('overview');
         setCurrentEvalInfo(null);
         return;
       }
@@ -2079,32 +2076,32 @@ export default function ReviewView() {
     analyzeNextPly();
   };
 
-  // Render small pill tags inside the moves table
-  const renderInlineBadge = (type: AnnotationType) => {
-    if (type === 'normal') return null;
+  // Styling & icon-only badge helpers for highlight-only key moves (Brilliant, Great, Blunder)
+  const getMoveButtonHighlightClass = (type: AnnotationType, isActive: boolean): string => {
+    if (type === 'brilliant') {
+      return isActive
+        ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/70 font-black shadow-sm shadow-cyan-500/15'
+        : 'bg-cyan-500/12 text-cyan-300 border border-cyan-400/25 hover:bg-cyan-500/20';
+    }
+    if (type === 'great') {
+      return isActive
+        ? 'bg-blue-500/25 text-blue-200 border border-blue-400/70 font-black shadow-sm shadow-blue-500/15'
+        : 'bg-blue-500/12 text-blue-300 border border-blue-400/25 hover:bg-blue-500/20';
+    }
+    if (type === 'blunder') {
+      return isActive
+        ? 'bg-red-500/25 text-red-200 border border-red-400/70 font-black shadow-sm shadow-red-500/15'
+        : 'bg-red-500/12 text-red-400 border border-red-500/25 hover:bg-red-500/20';
+    }
 
-    const badgeStyles: Record<AnnotationType, { bg: string; text: string; label: string }> = {
-      brilliant: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Brilliant' },
-      great: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Great' },
-      best: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Best' },
-      excellent: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Excellent' },
-      good: { bg: 'bg-neutral-500/10', text: 'text-neutral-400', label: 'Good' },
-      book: { bg: 'bg-neutral-500/10', text: 'text-neutral-400', label: 'Book' },
-      inaccuracy: { bg: 'bg-amber-500/10', text: 'text-amber-400', label: 'Inaccuracy' },
-      mistake: { bg: 'bg-orange-500/10', text: 'text-orange-400', label: 'Mistake' },
-      miss: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Miss' },
-      blunder: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Blunder' },
-      normal: { bg: '', text: '', label: '' },
-    };
+    return isActive
+      ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20 border border-transparent'
+      : 'text-neutral-300 hover:bg-neutral-800 hover:text-white border border-transparent';
+  };
 
-    const style = badgeStyles[type];
-
-    return (
-      <div className={`ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${style.bg} ${style.text} border border-current/10`}>
-        <ChessAnnotationIcon type={type} size="0.82rem" />
-        <span className="text-[9px] font-bold uppercase tracking-wider">{style.label}</span>
-      </div>
-    );
+  const renderMoveListIcon = (type: AnnotationType) => {
+    if (type !== 'brilliant' && type !== 'great' && type !== 'blunder') return null;
+    return <ChessAnnotationIcon type={type} size="0.82rem" />;
   };
 
   // Calculation for Evaluation Bar height percentage (pinned to winning side on mate/checkmate)
@@ -2439,8 +2436,11 @@ export default function ReviewView() {
             const blackWidth = `${(blackCount / maxCount) * 100}%`;
 
             const barColorClass =
-              cat.key === 'brilliant' || cat.key === 'great' || cat.key === 'best' ? 'bg-green-500' :
-              cat.key === 'excellent' || cat.key === 'good' || cat.key === 'book' ? 'bg-blue-500' :
+              cat.key === 'brilliant' ? 'bg-cyan-500' :
+              cat.key === 'great' ? 'bg-blue-500' :
+              cat.key === 'best' ? 'bg-green-500' :
+              cat.key === 'excellent' ? 'bg-emerald-500' :
+              cat.key === 'good' || cat.key === 'book' ? 'bg-sky-500' :
               cat.key === 'inaccuracy' ? 'bg-yellow-500' :
               cat.key === 'mistake' ? 'bg-orange-500' : 'bg-red-500';
 
@@ -2538,14 +2538,10 @@ export default function ReviewView() {
                 <button
                   id={`ply-row-${wPly.plyIndex}`}
                   onClick={() => { setIsPlaying(false); setCurrentPlyIndex(wPly.plyIndex); }}
-                  className={`w-full min-h-[40px] text-left py-1.5 px-2 rounded-lg font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
-                    isWhiteActive
-                      ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20'
-                      : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
-                  }`}
+                  className={`w-full min-h-[40px] text-left py-1.5 px-2.5 rounded-lg font-bold flex items-center justify-between gap-1.5 transition-all cursor-pointer ${getMoveButtonHighlightClass(wPly.annotation, !!isWhiteActive)}`}
                 >
                   <span className="truncate">{wPly.san}</span>
-                  {renderInlineBadge(wPly.annotation)}
+                  {renderMoveListIcon(wPly.annotation)}
                 </button>
               )}
             </div>
@@ -2555,14 +2551,10 @@ export default function ReviewView() {
                 <button
                   id={`ply-row-${bPly.plyIndex}`}
                   onClick={() => { setIsPlaying(false); setCurrentPlyIndex(bPly.plyIndex); }}
-                  className={`w-full min-h-[40px] text-left py-1.5 px-2 rounded-lg font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
-                    isBlackActive
-                      ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20'
-                      : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
-                  }`}
+                  className={`w-full min-h-[40px] text-left py-1.5 px-2.5 rounded-lg font-bold flex items-center justify-between gap-1.5 transition-all cursor-pointer ${getMoveButtonHighlightClass(bPly.annotation, !!isBlackActive)}`}
                 >
                   <span className="truncate">{bPly.san}</span>
-                  {renderInlineBadge(bPly.annotation)}
+                  {renderMoveListIcon(bPly.annotation)}
                 </button>
               ) : (
                 <span className="text-neutral-600 select-none px-2">...</span>
@@ -2574,172 +2566,193 @@ export default function ReviewView() {
     </div>
   );
 
-  // Load Tab Body
+  // Load Tab Body (compact, shrinks cleanly to content with animated transitions)
   const renderLoadGameBody = () => (
-    <div className="w-full h-full flex flex-col p-4 sm:p-5">
-      {isAnalyzing ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-5 bg-neutral-900/60 rounded-xl border border-neutral-850">
-          <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin mb-3" />
-          <h4 className="text-sm font-bold text-white mb-1">Reviewing Game...</h4>
-          <p className="text-xs text-amber-400 font-mono mb-4">{analysisStep}</p>
-          
-          {currentEvalInfo && (
-            <div className="text-[11px] text-neutral-400 font-mono mb-4 bg-black/40 border border-neutral-850 rounded-xl px-3.5 py-2.5 space-y-1 text-left max-w-xs w-full tabular-nums">
-              <div className="flex justify-between">
-                <span>Depth:</span>
-                <span className="text-white font-bold">{currentEvalInfo.depth} / {depth}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Score:</span>
-                <span className="text-emerald-400 font-bold">{formatEvalLabel(currentEvalInfo.scoreText)}</span>
-              </div>
-              <div className="truncate">
-                <span>Line:</span> <span className="text-neutral-500">{currentEvalInfo.pv}</span>
-              </div>
-            </div>
-          )}
-
-          <div className="w-full max-w-xs h-2 bg-neutral-800 rounded-full overflow-hidden mb-1.5">
-            <div 
-              className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
-              style={{ width: `${analysisProgress}%` }}
-            />
-          </div>
-          <span className="text-[11px] font-mono text-neutral-400 tabular-nums">{analysisProgress}%</span>
-
-          <button
-            onClick={handleStopAnalysis}
-            className="mt-4 min-h-[44px] px-5 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs font-bold text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+    <div className="w-full flex flex-col p-4">
+      <AnimatePresence mode="wait">
+        {isAnalyzing ? (
+          <motion.div
+            key="analyzing-progress"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex flex-col items-center justify-center text-center p-5 bg-neutral-900/60 rounded-xl border border-neutral-850"
           >
-            Stop
-          </button>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col justify-between gap-4">
-          {/* Source Selector Pills */}
-          <div className="grid grid-cols-4 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850">
-            {(['pgn', 'fen', 'chesscom', 'lichess'] as const).map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setLoadType(type)}
-                className={`min-h-[40px] px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
-                  loadType === type
-                    ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
-                    : 'text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                {type === 'pgn' ? 'PGN' :
-                 type === 'fen' ? 'FEN' :
-                 type === 'chesscom' ? 'Chess.com' : 'Lichess'}
-              </button>
-            ))}
-          </div>
-
-          {/* Input Content */}
-          <div className="flex-1 flex flex-col justify-center">
-            {loadType === 'pgn' ? (
-              <div className="space-y-2 w-full">
-                <div className="relative h-44 sm:h-52 w-full">
-                  <textarea
-                    value={pgnText}
-                    onChange={(e) => setPgnText(e.target.value)}
-                    placeholder="Paste your PGN here..."
-                    className="w-full h-full bg-neutral-900 border border-neutral-800 rounded-xl p-3.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-emerald-500/60 resize-none"
-                  />
-                  {!pgnText.trim() && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
-                      <FileText className="w-7 h-7 text-neutral-700 mb-1.5" />
-                      <p className="text-xs text-neutral-500">Paste PGN text to review a game</p>
-                    </div>
-                  )}
+            <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mb-2.5" />
+            <h4 className="text-sm font-bold text-white mb-1">Reviewing Game...</h4>
+            <p className="text-xs text-amber-400 font-mono mb-3.5">{analysisStep}</p>
+            
+            {currentEvalInfo && (
+              <div className="text-[11px] text-neutral-400 font-mono mb-3.5 bg-black/40 border border-neutral-850 rounded-xl px-3.5 py-2.5 space-y-1 text-left max-w-xs w-full tabular-nums">
+                <div className="flex justify-between">
+                  <span>Depth:</span>
+                  <span className="text-white font-bold">{currentEvalInfo.depth} / {depth}</span>
                 </div>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={loadSamplePgn}
-                    className="min-h-[36px] text-xs font-bold text-emerald-400 hover:text-emerald-300 px-2.5 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors cursor-pointer"
-                  >
-                    Load Sample
-                  </button>
+                <div className="flex justify-between">
+                  <span>Score:</span>
+                  <span className="text-emerald-400 font-bold">{formatEvalLabel(currentEvalInfo.scoreText)}</span>
                 </div>
-              </div>
-            ) : loadType === 'fen' ? (
-              <div className="space-y-2 w-full">
-                <label className="text-xs text-neutral-400 font-bold block">FEN Position</label>
-                <input
-                  type="text"
-                  value={fenText}
-                  onChange={(e) => setFenText(e.target.value)}
-                  placeholder="e.g. r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
-                  className="w-full min-h-[48px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none"
-                />
-              </div>
-            ) : (
-              <div className="space-y-4 w-full">
-                <div className="space-y-1.5">
-                  <label className="text-xs text-neutral-400 font-bold block">
-                    {loadType === 'chesscom' ? 'Chess.com Username' : 'Lichess Username'}
-                  </label>
-                  <input
-                    type="text"
-                    value={importUsername}
-                    onChange={(e) => setImportUsername(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-                    placeholder="Enter username..."
-                    className="w-full min-h-[48px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none"
-                  />
-                </div>
-                
-                <div className="flex justify-start">
-                  <button
-                    type="button"
-                    onClick={() => handleSearch()}
-                    disabled={isLoadingGames || !importUsername.trim()}
-                    className="min-h-[44px] px-5 py-2.5 bg-neutral-800 hover:bg-neutral-750 disabled:bg-neutral-900 disabled:text-neutral-700 border border-neutral-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
-                  >
-                    {isLoadingGames ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Search className="w-3.5 h-3.5" />
-                    )}
-                    Find Games
-                  </button>
+                <div className="truncate">
+                  <span>Line:</span> <span className="text-neutral-500">{currentEvalInfo.pv}</span>
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Primary Analyze CTA */}
-          <div className="border-t border-neutral-900 pt-3 mt-auto">
+            <div className="w-full max-w-xs h-2 bg-neutral-800 rounded-full overflow-hidden mb-1.5">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
+                style={{ width: `${analysisProgress}%` }}
+              />
+            </div>
+            <span className="text-[11px] font-mono text-neutral-400 tabular-nums">{analysisProgress}%</span>
+
             <button
-              type="button"
-              onClick={() => {
-                if (loadType === 'pgn') {
-                  handleAnalyze(pgnText);
-                } else if (loadType === 'fen') {
-                  handleAnalyze(fenText);
-                } else {
-                  if (pgnText) {
-                    handleAnalyze(pgnText);
-                  } else {
-                    handleSearch();
-                  }
-                }
-              }}
-              disabled={
-                loadType === 'pgn' ? !pgnText.trim() :
-                loadType === 'fen' ? !fenText.trim() :
-                !importUsername.trim()
-              }
-              className="w-full min-h-[48px] py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-neutral-900 disabled:text-neutral-700 border border-transparent text-neutral-950 text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
+              onClick={handleStopAnalysis}
+              className="mt-3.5 min-h-[44px] px-5 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs font-bold text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 fill-current" />
-              Analyze
+              Stop
             </button>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="load-form"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex flex-col gap-3.5"
+          >
+            {/* Source Selector Pills */}
+            <div className="grid grid-cols-4 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850">
+              {(['pgn', 'fen', 'chesscom', 'lichess'] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setLoadType(type)}
+                  className={`min-h-[40px] px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
+                    loadType === type
+                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  {type === 'pgn' ? 'PGN' :
+                   type === 'fen' ? 'FEN' :
+                   type === 'chesscom' ? 'Chess.com' : 'Lichess'}
+                </button>
+              ))}
+            </div>
+
+            {/* Animated Source Input Body */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={loadType}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {loadType === 'pgn' ? (
+                  <div className="space-y-2 w-full">
+                    <div className="relative h-32 sm:h-36 w-full">
+                      <textarea
+                        value={pgnText}
+                        onChange={(e) => setPgnText(e.target.value)}
+                        placeholder="Paste your PGN here..."
+                        className="w-full h-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-emerald-500/60 resize-none"
+                      />
+                      {!pgnText.trim() && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
+                          <FileText className="w-6 h-6 text-neutral-700 mb-1" />
+                          <p className="text-xs text-neutral-500">Paste PGN text to review a game</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={loadSamplePgn}
+                        className="min-h-[36px] text-xs font-bold text-emerald-400 hover:text-emerald-300 px-2.5 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                      >
+                        Load Sample
+                      </button>
+                    </div>
+                  </div>
+                ) : loadType === 'fen' ? (
+                  <div className="space-y-1.5 w-full">
+                    <label className="text-xs text-neutral-400 font-bold block">FEN Position</label>
+                    <input
+                      type="text"
+                      value={fenText}
+                      onChange={(e) => setFenText(e.target.value)}
+                      placeholder="e.g. r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+                      className="w-full min-h-[44px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 w-full">
+                    <label className="text-xs text-neutral-400 font-bold block">
+                      {loadType === 'chesscom' ? 'Chess.com Username' : 'Lichess Username'}
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={importUsername}
+                        onChange={(e) => setImportUsername(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+                        placeholder="Enter username..."
+                        className="flex-1 min-w-0 min-h-[44px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSearch()}
+                        disabled={isLoadingGames || !importUsername.trim()}
+                        className="min-h-[44px] px-4 py-2 bg-neutral-800 hover:bg-neutral-750 disabled:bg-neutral-900 disabled:text-neutral-700 border border-neutral-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                      >
+                        {isLoadingGames ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Search className="w-3.5 h-3.5" />
+                        )}
+                        Find Games
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Primary Analyze CTA */}
+            <div className="border-t border-neutral-900 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (loadType === 'pgn') {
+                    handleAnalyze(pgnText);
+                  } else if (loadType === 'fen') {
+                    handleAnalyze(fenText);
+                  } else {
+                    if (pgnText) {
+                      handleAnalyze(pgnText);
+                    } else {
+                      handleSearch();
+                    }
+                  }
+                }}
+                disabled={
+                  loadType === 'pgn' ? !pgnText.trim() :
+                  loadType === 'fen' ? !fenText.trim() :
+                  !importUsername.trim()
+                }
+                className="w-full min-h-[46px] py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-neutral-900 disabled:text-neutral-700 border border-transparent text-neutral-950 text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
+              >
+                <Sparkles className="w-4 h-4 fill-current" />
+                Analyze
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 
@@ -3001,24 +3014,19 @@ export default function ReviewView() {
           </AnimatePresence>
 
           {/* Unified Single Inspector Panel */}
-          <div className="bg-[#12141a] border border-neutral-800/80 rounded-2xl overflow-hidden flex flex-col shadow-xl min-h-[420px] lg:h-[620px]">
-            {/* Top Tab Strip */}
+          <motion.div
+            layout
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className={`bg-[#12141a] border border-neutral-800/80 rounded-2xl overflow-hidden flex flex-col shadow-xl ${
+              panelTab === 'load' ? 'h-auto' : 'min-h-[420px] lg:h-[620px]'
+            }`}
+          >
+            {/* Top Tab Strip (Overview | Load | Moves) */}
             <div
               data-no-page-swipe="true"
               className="flex items-center justify-between gap-2 bg-neutral-950 border-b border-neutral-850 p-1.5"
             >
               <div className="grid grid-cols-3 gap-1 flex-1 sm:flex-none sm:flex">
-                <button
-                  type="button"
-                  onClick={() => setPanelTab('moves')}
-                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    panelTab === 'moves'
-                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  Moves
-                </button>
                 <button
                   type="button"
                   onClick={() => setPanelTab('overview')}
@@ -3040,6 +3048,17 @@ export default function ReviewView() {
                   }`}
                 >
                   Load
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanelTab('moves')}
+                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    panelTab === 'moves'
+                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  Moves
                 </button>
               </div>
 
@@ -3076,13 +3095,24 @@ export default function ReviewView() {
               </div>
             )}
 
-            {/* Panel Body */}
-            <div className="flex-1 overflow-hidden relative flex flex-col">
-              {panelTab === 'moves' && renderMovesListBody()}
-              {panelTab === 'overview' && renderOverviewTabBody()}
-              {panelTab === 'load' && renderLoadGameBody()}
+            {/* Animated Panel Body */}
+            <div className={`relative flex flex-col ${panelTab === 'load' ? '' : 'flex-1 overflow-hidden'}`}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={panelTab}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  className={panelTab === 'load' ? 'w-full' : 'w-full h-full flex-1 overflow-hidden'}
+                >
+                  {panelTab === 'overview' && renderOverviewTabBody()}
+                  {panelTab === 'load' && renderLoadGameBody()}
+                  {panelTab === 'moves' && renderMovesListBody()}
+                </motion.div>
+              </AnimatePresence>
             </div>
-          </div>
+          </motion.div>
 
         </div>
       </div>
