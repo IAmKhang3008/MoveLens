@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, Pause, SkipBack, ChevronLeft, ChevronRight, SkipForward, 
-  Sparkles, FileText, Settings, RefreshCw, Cpu, Activity, Info, X, Zap,
-  Globe, Download, Search, Trophy, Award, ChevronDown, Send, Copy,
-  Volume2, VolumeX, Repeat
+  Sparkles, FileText, Settings, RefreshCw, Activity, Info, X,
+  Search, Send, Volume2, VolumeX, Repeat, Smartphone, RotateCcw
 } from 'lucide-react';
 import { Chess } from 'chess.js';
 import { BoardState, BoardSquare, Ply, AnnotationType, GameSummary, Arrow } from '../types';
@@ -13,6 +12,66 @@ import Chessboard from './Chessboard';
 import ChessAnnotationIcon from './ChessAnnotationIcon';
 import { StockfishManager, StockfishEvaluation, EngineType } from '../lib/StockfishManager';
 import { OPENINGS_DATABASE } from '../data/openings';
+import EvaluationGraph from './EvaluationGraph';
+
+interface AutoTunedEngineConfig {
+  engineType: EngineType;
+  depth: number;
+  threads: number;
+  hashSize: number;
+  isMobile: boolean;
+  label: string;
+}
+
+function getAutoTunedEngineConfig(): AutoTunedEngineConfig {
+  if (typeof window === 'undefined') {
+    return {
+      engineType: 'lite-single',
+      depth: 10,
+      threads: 4,
+      hashSize: 32,
+      isMobile: false,
+      label: 'Desktop Standard',
+    };
+  }
+
+  const isCoarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const isSmallScreen = window.innerWidth < 768;
+  const isMobile = isCoarsePointer || isSmallScreen;
+  const hasSab = typeof SharedArrayBuffer !== 'undefined';
+  const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 2) : 2;
+  const memoryGb = typeof navigator !== 'undefined' ? ((navigator as any).deviceMemory || 4) : 4;
+
+  if (isMobile) {
+    if (hasSab && cores >= 4 && memoryGb >= 4) {
+      return {
+        engineType: 'lite-multi',
+        depth: 9,
+        threads: Math.min(2, cores),
+        hashSize: 16,
+        isMobile: true,
+        label: `Mobile Auto (${Math.min(2, cores)} threads · Depth 9)`,
+      };
+    }
+    return {
+      engineType: 'lite-single',
+      depth: 8,
+      threads: 1,
+      hashSize: 16,
+      isMobile: true,
+      label: 'Mobile Lite Auto (Single-core · Depth 8)',
+    };
+  }
+
+  return {
+    engineType: 'lite-single',
+    depth: 10,
+    threads: Math.min(4, Math.max(1, cores)),
+    hashSize: 32,
+    isMobile: false,
+    label: 'Laptop Standard (Depth 10)',
+  };
+}
 
 // Robust utility to sanitize PGN text before parsing with chess.js.
 // Since chess.js uses a strict PEG.js parser, unexpected characters inside comments,
@@ -364,6 +423,84 @@ export default function ReviewView() {
   const lastPlayedIndexRef = useRef<number>(0);
   const pliesRef = useRef<Ply[]>(plies);
 
+  // Calculate per-player move classification counts & accuracy dynamically from plies
+  const moveStats = useMemo(() => {
+    const whiteCounts: Record<AnnotationType, number> = {
+      brilliant: 0, great: 0, best: 0, excellent: 0, good: 0,
+      book: 0, inaccuracy: 0, mistake: 0, miss: 0, blunder: 0, normal: 0
+    };
+    const blackCounts: Record<AnnotationType, number> = {
+      brilliant: 0, great: 0, best: 0, excellent: 0, good: 0,
+      book: 0, inaccuracy: 0, mistake: 0, miss: 0, blunder: 0, normal: 0
+    };
+
+    let whiteWeightedSum = 0;
+    let whiteMoveCount = 0;
+    let blackWeightedSum = 0;
+    let blackMoveCount = 0;
+
+    const weights: Partial<Record<AnnotationType, number>> = {
+      brilliant: 100,
+      great: 100,
+      best: 100,
+      book: 100,
+      excellent: 92,
+      good: 78,
+      inaccuracy: 50,
+      mistake: 25,
+      miss: 10,
+      blunder: 0,
+      normal: 85,
+    };
+
+    plies.forEach((ply) => {
+      const ann = ply.annotation || 'normal';
+      const weight = weights[ann] ?? 85;
+
+      if (ply.color === 'w') {
+        whiteCounts[ann] = (whiteCounts[ann] || 0) + 1;
+        if (ann !== 'normal') {
+          whiteWeightedSum += weight;
+          whiteMoveCount++;
+        }
+      } else if (ply.color === 'b') {
+        blackCounts[ann] = (blackCounts[ann] || 0) + 1;
+        if (ann !== 'normal') {
+          blackWeightedSum += weight;
+          blackMoveCount++;
+        }
+      }
+    });
+
+    const whiteAccuracy = whiteMoveCount > 0 
+      ? (whiteWeightedSum / whiteMoveCount).toFixed(1) 
+      : '100.0';
+
+    const blackAccuracy = blackMoveCount > 0 
+      ? (blackWeightedSum / blackMoveCount).toFixed(1) 
+      : '100.0';
+
+    return {
+      whiteCounts,
+      blackCounts,
+      whiteAccuracy,
+      blackAccuracy,
+    };
+  }, [plies]);
+
+  const categories: { key: AnnotationType; label: string; textClass: string }[] = [
+    { key: 'brilliant', label: 'Brilliant', textClass: 'text-cyan-400' },
+    { key: 'great', label: 'Great', textClass: 'text-emerald-400' },
+    { key: 'best', label: 'Best', textClass: 'text-green-400' },
+    { key: 'excellent', label: 'Excellent', textClass: 'text-blue-400' },
+    { key: 'good', label: 'Good', textClass: 'text-teal-400' },
+    { key: 'book', label: 'Book', textClass: 'text-sky-300' },
+    { key: 'inaccuracy', label: 'Inaccuracy', textClass: 'text-amber-400' },
+    { key: 'mistake', label: 'Mistake', textClass: 'text-orange-400' },
+    { key: 'miss', label: 'Miss', textClass: 'text-rose-400' },
+    { key: 'blunder', label: 'Blunder', textClass: 'text-red-500' },
+  ];
+
   // Preload sounds on mount
   useEffect(() => {
     const soundNames = [
@@ -467,7 +604,19 @@ export default function ReviewView() {
     };
   }, [currentPlyIndex, plies, isMuted]);
 
-  const [activeTab, setActiveTab] = useState<'moves' | 'load'>('moves');
+  const [panelTab, setPanelTab] = useState<'moves' | 'overview' | 'load'>('moves');
+  const [isDesktopLg, setIsDesktopLg] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktopLg(e.matches);
+    setIsDesktopLg(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Persistent memory state for username, PGN, FEN, and load type
   const [pgnText, setPgnTextState] = useState<string>(() => localStorage.getItem('chess_saved_pgn') || '');
@@ -501,7 +650,6 @@ export default function ReviewView() {
     localStorage.setItem('chess_saved_load_type', val);
   };
 
-  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [isGameModalOpen, setIsGameModalOpen] = useState<boolean>(false);
 
   // Chess.com and Lichess live import state
@@ -519,12 +667,23 @@ export default function ReviewView() {
     flair?: string;
   } | null>(null);
 
-  // Engine configuration
-  const [engineType, setEngineType] = useState<EngineType>('lite-single');
-  const [depth, setDepth] = useState<number>(10); // snappy depth for instant browser reviews
-  const [threads, setThreads] = useState<number>(4);
-  const [hashSize, setHashSize] = useState<number>(32);
+  // Hardware-aware engine configuration (auto-tuned on mobile with manual override)
+  const initialEnginePreset = useMemo(() => getAutoTunedEngineConfig(), []);
+  const [engineType, setEngineType] = useState<EngineType>(initialEnginePreset.engineType);
+  const [depth, setDepth] = useState<number>(initialEnginePreset.depth);
+  const [threads, setThreads] = useState<number>(initialEnginePreset.threads);
+  const [hashSize, setHashSize] = useState<number>(initialEnginePreset.hashSize);
+  const [isManualEngineOverride, setIsManualEngineOverride] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
+
+  const resetToRecommendedEngine = () => {
+    const preset = getAutoTunedEngineConfig();
+    setEngineType(preset.engineType);
+    setDepth(preset.depth);
+    setThreads(preset.threads);
+    setHashSize(preset.hashSize);
+    setIsManualEngineOverride(false);
+  };
 
   // Engine run state
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -547,6 +706,22 @@ export default function ReviewView() {
   const [orientation, setOrientation] = useState<'white' | 'black'>('white');
   const liveEngineRef = useRef<StockfishManager | null>(null);
   const activeMovesRef = useRef<Record<number, { uci: string; depth: number }>>({});
+
+  const handleUserArrowToggle = (startSquare: string, endSquare: string) => {
+    setUserArrows(prev => {
+      const existsIdx = prev.findIndex(
+        a => a.startSquare === startSquare && a.endSquare === endSquare
+      );
+      if (existsIdx !== -1) {
+        return prev.filter((_, idx) => idx !== existsIdx);
+      }
+      return [...prev, { startSquare, endSquare, color: 'rgb(255, 170, 0)' }];
+    });
+  };
+
+  const handleClearUserArrows = () => {
+    setUserArrows(prev => (prev.length > 0 ? [] : prev));
+  };
 
   // Refs
   const moveListRef = useRef<HTMLDivElement>(null);
@@ -667,9 +842,9 @@ export default function ReviewView() {
       // Set MultiPV based on the selected mode
       const multiPVVal = analysisMode === 'alternative' ? 3 : 1;
       
-      // Run live engine evaluation to a lightweight depth (e.g., 14) for instant arrows
-      // using the robust Promise-based queue evaluate method instead of evaluatePosition
-      manager.evaluate(fen, 14, (evalData) => {
+      // Run live engine evaluation to a lightweight depth (capped lighter on mobile for responsiveness)
+      const liveDepth = initialEnginePreset.isMobile ? 11 : 14;
+      manager.evaluate(fen, liveDepth, (evalData) => {
         const mv = evalData.multipv || 1;
         const currentBestForMv = activeMovesRef.current[mv];
 
@@ -1240,7 +1415,7 @@ export default function ReviewView() {
   const getWhitePerspectiveScore = (scoreType: 'cp' | 'mate', scoreValue: number, playedColor: 'w' | 'b'): number => {
     let val = scoreValue;
     if (scoreType === 'mate') {
-      const sign = scoreValue >= 0 ? 1 : -1;
+      const sign = scoreValue > 0 ? 1 : -1;
       val = sign * (10000 - Math.abs(scoreValue)); // huge positive for mate, huge negative for being mated
     }
     // If White played the move, the position evaluated is Black's turn to move, so Stockfish score is from Black's perspective.
@@ -1253,18 +1428,22 @@ export default function ReviewView() {
 
   // Convert an engine score string (which is from the side-to-move's perspective) to White's perspective
   const normalizeScoreTextToWhite = (rawScoreText: string, playedColor: 'w' | 'b'): string => {
-    // If Black played the move, the analyzed position is White to move, so it is already from White's perspective
-    if (playedColor === 'b') return rawScoreText;
-
-    // If White played the move, the analyzed position is Black to move, so we must flip it
-    if (rawScoreText.startsWith('M')) {
-      return rawScoreText.startsWith('M-')
-        ? `M${rawScoreText.slice(2)}` // "M-3" -> "M3"
-        : `M-${rawScoreText.slice(1)}`; // "M3" -> "M-3"
+    const trimmed = rawScoreText.trim();
+    const isMate = /^-?M-?\d+$/i.test(trimmed) || /^\+?M\d+$/i.test(trimmed);
+    if (isMate) {
+      const numMatch = trimmed.match(/\d+/);
+      const n = numMatch ? numMatch[0] : '1';
+      const rawNeg = trimmed.startsWith('-') || trimmed.includes('M-');
+      // If Black played, turn is White -> already White's perspective.
+      // If White played, turn is Black -> flip polarity.
+      const whiteNeg = playedColor === 'b' ? rawNeg : !rawNeg;
+      return whiteNeg ? `-M${n}` : `M${n}`;
     }
 
-    const val = parseFloat(rawScoreText);
-    if (isNaN(val)) return rawScoreText;
+    if (playedColor === 'b') return trimmed;
+
+    const val = parseFloat(trimmed);
+    if (isNaN(val)) return trimmed;
     const flipped = -val;
     return `${flipped >= 0 ? '+' : ''}${flipped.toFixed(2)}`;
   };
@@ -1554,7 +1733,7 @@ export default function ReviewView() {
       // Show the initial moves table immediately to keep the UI interactive
       setPlies(parsedPlies);
       setCurrentPlyIndex(0);
-      setActiveTab('moves');
+      setPanelTab('moves');
       playGameStartSound();
 
       // 2. Start Stockfish engine
@@ -1769,47 +1948,17 @@ export default function ReviewView() {
         const scoreTxt = latestEval?.scoreText || '0.00';
         const bestCompMove = latestEval?.bestMove || '';
 
-        const currentWhitePerspectiveScore = getWhitePerspectiveScore(scoreType, scoreVal, currentTurn === 'w' ? 'b' : 'w');
-        const normalizedScoreTxt = normalizeScoreTextToWhite(scoreTxt, currentTurn === 'w' ? 'b' : 'w');
+        let currentWhitePerspectiveScore = getWhitePerspectiveScore(scoreType, scoreVal, currentTurn === 'w' ? 'b' : 'w');
+        let normalizedScoreTxt = normalizeScoreTextToWhite(scoreTxt, currentTurn === 'w' ? 'b' : 'w');
 
         if (isStartingPosition) {
           lastWhitePerspectiveScore = currentWhitePerspectiveScore;
           lastBestMoveUci = bestCompMove;
           whitePerspectiveScoresList.push(currentWhitePerspectiveScore);
         } else {
-          let drop = 0;
-          if (activePly!.color === 'w') {
-            drop = lastWhitePerspectiveScore - currentWhitePerspectiveScore;
-          } else {
-            drop = currentWhitePerspectiveScore - lastWhitePerspectiveScore;
-          }
-
-          // We want the absolute scores to be from the perspective of the player making the move
-          const perspectiveLastScore = activePly!.color === 'w' ? lastWhitePerspectiveScore : -lastWhitePerspectiveScore;
-          const perspectiveCurrentScore = activePly!.color === 'w' ? currentWhitePerspectiveScore : -currentWhitePerspectiveScore;
-
-          // Calculate opponent's drop if applicable
-          let opponentDrop = 0;
-          if (activeIndex >= 1) {
-            const scoreTwoPliesAgo = whitePerspectiveScoresList[activeIndex - 1];
-            const scoreOnePlyAgo = whitePerspectiveScoresList[activeIndex];
-            if (activePly!.color === 'w') {
-              // Opponent was Black
-              opponentDrop = scoreOnePlyAgo - scoreTwoPliesAgo;
-            } else {
-              // Opponent was White
-              opponentDrop = scoreTwoPliesAgo - scoreOnePlyAgo;
-            }
-          }
-
-          // Add our own score to the history list AFTER calculating the opponent's drop
-          whitePerspectiveScoresList.push(currentWhitePerspectiveScore);
-
-          // Reconstruct move to check for sacrifice and opening book
+          // Reconstruct move details first so terminal checkmate overrides fallback Stockfish "0.00"
           const fenBefore = activeIndex === 0 ? startingFen : (finalPlies[activeIndex - 1].fen || startingFen);
           const positionKey = (activePly!.fen || '').split(' ')[0];
-          
-          // A Book move is an opening move in the DATABASE up to move 10
           const isBookMove = activePly!.moveNum <= 10 && positionKey in OPENINGS_DATABASE;
 
           let isSacrifice = false;
@@ -1841,6 +1990,39 @@ export default function ReviewView() {
           } catch (e) {
             console.error('[runSequencingAnalysis] Error parsing played move details:', e);
           }
+
+          if (isCheckmate) {
+            currentWhitePerspectiveScore = activePly!.color === 'w' ? 1000 : -1000;
+            normalizedScoreTxt = activePly!.color === 'w' ? 'M0' : '-M0';
+          }
+
+          let drop = 0;
+          if (activePly!.color === 'w') {
+            drop = lastWhitePerspectiveScore - currentWhitePerspectiveScore;
+          } else {
+            drop = currentWhitePerspectiveScore - lastWhitePerspectiveScore;
+          }
+
+          // We want the absolute scores to be from the perspective of the player making the move
+          const perspectiveLastScore = activePly!.color === 'w' ? lastWhitePerspectiveScore : -lastWhitePerspectiveScore;
+          const perspectiveCurrentScore = activePly!.color === 'w' ? currentWhitePerspectiveScore : -currentWhitePerspectiveScore;
+
+          // Calculate opponent's drop if applicable
+          let opponentDrop = 0;
+          if (activeIndex >= 1) {
+            const scoreTwoPliesAgo = whitePerspectiveScoresList[activeIndex - 1];
+            const scoreOnePlyAgo = whitePerspectiveScoresList[activeIndex];
+            if (activePly!.color === 'w') {
+              // Opponent was Black
+              opponentDrop = scoreOnePlyAgo - scoreTwoPliesAgo;
+            } else {
+              // Opponent was White
+              opponentDrop = scoreTwoPliesAgo - scoreOnePlyAgo;
+            }
+          }
+
+          // Add our own score to the history list AFTER calculating the opponent's drop
+          whitePerspectiveScoresList.push(currentWhitePerspectiveScore);
 
           let moveType: AnnotationType = 'normal';
           if (isBookMove) {
@@ -1897,182 +2079,770 @@ export default function ReviewView() {
     analyzeNextPly();
   };
 
-  // Helper styles for annotation badges in grid list
-  const getAnnotationBadge = (type: AnnotationType, value: number) => {
-    const badgeStyles: Record<AnnotationType, { bg: string; border: string; text: string; label: string }> = {
-      brilliant: { bg: 'bg-green-500/5 text-green-400 border-green-500/20', border: 'border-green-500/20', text: 'text-green-400', label: 'Brilliant' },
-      great: { bg: 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20', border: 'border-emerald-500/20', text: 'text-emerald-400', label: 'Great' },
-      best: { bg: 'bg-blue-500/5 text-blue-400 border-blue-500/20', border: 'border-blue-500/20', text: 'text-blue-400', label: 'Best' },
-      excellent: { bg: 'bg-indigo-500/5 text-indigo-400 border-indigo-500/20', border: 'border-indigo-500/20', text: 'text-indigo-400', label: 'Excellent' },
-      good: { bg: 'bg-teal-500/5 text-teal-400 border-teal-500/20', border: 'border-teal-500/20', text: 'text-teal-400', label: 'Good' },
-      book: { bg: 'bg-sky-500/5 text-sky-400 border-sky-500/10', border: 'border-sky-500/10', text: 'text-sky-400', label: 'Book' },
-      inaccuracy: { bg: 'bg-amber-500/5 text-amber-500 border-amber-500/10', border: 'border-amber-500/10', text: 'text-amber-500', label: 'Inaccuracy' },
-      mistake: { bg: 'bg-orange-500/5 text-orange-400 border-orange-500/10', border: 'border-orange-500/10', text: 'text-orange-400', label: 'Mistake' },
-      miss: { bg: 'bg-red-500/5 text-red-400 border-red-500/10', border: 'border-red-500/10', text: 'text-red-400', label: 'Miss' },
-      blunder: { bg: 'bg-rose-500/5 text-rose-400 border-rose-500/20', border: 'border-rose-500/20', text: 'text-rose-400', label: 'Blunder' },
-      normal: { bg: 'bg-neutral-800', border: 'border-neutral-700', text: 'text-neutral-400', label: 'Normal' },
+  // Render small pill tags inside the moves table
+  const renderInlineBadge = (type: AnnotationType) => {
+    if (type === 'normal') return null;
+
+    const badgeStyles: Record<AnnotationType, { bg: string; text: string; label: string }> = {
+      brilliant: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Brilliant' },
+      great: { bg: 'bg-green-500/10', text: 'text-green-400', label: 'Great' },
+      best: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Best' },
+      excellent: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Excellent' },
+      good: { bg: 'bg-neutral-500/10', text: 'text-neutral-400', label: 'Good' },
+      book: { bg: 'bg-neutral-500/10', text: 'text-neutral-400', label: 'Book' },
+      inaccuracy: { bg: 'bg-amber-500/10', text: 'text-amber-400', label: 'Inaccuracy' },
+      mistake: { bg: 'bg-orange-500/10', text: 'text-orange-400', label: 'Mistake' },
+      miss: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Miss' },
+      blunder: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Blunder' },
+      normal: { bg: '', text: '', label: '' },
     };
 
     const style = badgeStyles[type];
-    if (type === 'normal') return null;
 
     return (
-      <div 
-        key={type}
-        className={`flex items-center justify-between p-2.5 rounded-xl border ${style.bg} ${style.border} text-xs font-semibold shadow-sm hover:scale-[1.02] transition-all duration-200 cursor-help`}
-        title={`Analyzed ${style.label} Moves`}
-      >
-        <div className="flex items-center gap-2">
-          <ChessAnnotationIcon type={type} size="1.35rem" />
-          <span className="opacity-95 font-bold text-neutral-200">{style.label}</span>
-        </div>
-        <span className="text-xs font-black bg-black/40 text-neutral-300 px-2.5 py-0.5 rounded-md border border-neutral-800">{value}</span>
+      <div className={`ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${style.bg} ${style.text} border border-current/10`}>
+        <ChessAnnotationIcon type={type} size="0.82rem" />
+        <span className="text-[9px] font-bold uppercase tracking-wider">{style.label}</span>
       </div>
     );
   };
 
-  // Render small pill tags inside the moves table
-  const renderInlineBadge = (type: AnnotationType) => {
-    if (type === 'normal') return null;
-    return <ChessAnnotationIcon type={type} size="1.1rem" className="ml-1.5 inline-block align-middle" />;
-  };
-
-  // Calculation for Evaluation Bar height percentage
+  // Calculation for Evaluation Bar height percentage (pinned to winning side on mate/checkmate)
   const getEvalBarHeight = (): number => {
     if (!currentPly) return 50; // default centered at starting position
-
-    // If we have custom scored text from live evaluation or stored ply
-    const scoreText = (currentPly as any).scoreText || currentEvalInfo?.scoreText;
-    if (!scoreText) return 50;
-
-    if (scoreText.startsWith('M') || scoreText.startsWith('-M')) {
-      return scoreText.includes('-') ? 0 : 100; // mate
+    if (currentPly.san?.endsWith('#')) {
+      return currentPly.color === 'w' ? 100 : 0;
     }
 
-    const score = parseFloat(scoreText);
+    const scoreText = currentPly.scoreText || currentEvalInfo?.scoreText;
+    if (!scoreText) return 50;
+
+    const trimmed = scoreText.trim();
+    if (/^-M\d+$/i.test(trimmed) || /^M-\d+$/i.test(trimmed)) return 0;
+    if (/^\+?M\d+$/i.test(trimmed)) return 100;
+
+    const score = parseFloat(trimmed);
     if (isNaN(score)) return 50;
 
     // Convert pawns score to centipawn score
     const cp = score * 100;
     
     // Sigmoid function (Lichess & Chess.com standard):
-    // P(win) = 1 / (1 + Math.exp(-0.0035 * cp));
     const winProb = 1 / (1 + Math.exp(-0.0035 * cp));
     
     // Map from [0, 1] to [5%, 95%] height range
-    const percent = 5 + winProb * 90;
-    return percent;
+    return 5 + winProb * 90;
+  };
+
+  const formatEvalLabel = (raw?: string): string => {
+    if (currentPly?.san?.endsWith('#')) return '#';
+    if (!raw) return '0.00';
+    const trimmed = raw.trim();
+    if (trimmed === 'M0' || trimmed === '-M0') return '#';
+    if (/^M-(\d+)$/i.test(trimmed)) return `-M${trimmed.slice(2)}`;
+    return trimmed;
   };
 
   const evalPercentage = getEvalBarHeight();
+  const activeEvalLabel = currentPly ? formatEvalLabel(currentPly.scoreText || currentEvalInfo?.scoreText) : '0.00';
+
+  // Settings Drawer Content
+  const renderSettingsContent = () => (
+    <div className="space-y-4 text-left">
+      <div className="flex items-center justify-between pb-2.5 border-b border-neutral-800">
+        <div className="flex items-center gap-2">
+          <Settings className="w-4 h-4 text-emerald-400" />
+          <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+            Engine Settings
+          </h4>
+        </div>
+        <button 
+          onClick={() => setShowSettings(false)}
+          className="min-h-[44px] min-w-[44px] -mr-2 flex items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+          aria-label="Close Settings"
+        >
+          <X className="w-4.5 h-4.5" />
+        </button>
+      </div>
+
+      {/* Auto-tune status banner */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-neutral-900/70 border border-neutral-800 text-[11px]">
+        <div className="flex items-center gap-2 text-neutral-300">
+          <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span>
+            {isManualEngineOverride ? 'Custom settings active' : initialEnginePreset.label}
+          </span>
+        </div>
+        {isManualEngineOverride && (
+          <button
+            type="button"
+            onClick={resetToRecommendedEngine}
+            className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer py-1 px-2 rounded-lg hover:bg-emerald-500/10 transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Reset
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        {/* Engine */}
+        <div>
+          <label className="text-neutral-400 block font-bold mb-1.5">Engine</label>
+          <select
+            value={engineType}
+            onChange={(e) => {
+              setEngineType(e.target.value as EngineType);
+              setIsManualEngineOverride(true);
+            }}
+            className="w-full min-h-[44px] bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-neutral-200 font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
+          >
+            <option value="lite-single">Stockfish 18 Lite (Single)</option>
+            <option value="lite-multi">Stockfish 18 Lite (Multi)</option>
+            <option value="large-multi">Stockfish 18 Full (NNUE)</option>
+          </select>
+        </div>
+
+        {/* Depth */}
+        <div>
+          <label className="text-neutral-400 block font-bold mb-1.5 flex justify-between">
+            <span>Depth</span>
+            <span className="text-emerald-400 font-mono font-bold tabular-nums">{depth} plies</span>
+          </label>
+          <div className="min-h-[44px] flex items-center">
+            <input 
+              type="range"
+              min="5"
+              max="15"
+              value={depth}
+              onChange={(e) => {
+                setDepth(parseInt(e.target.value, 10));
+                setIsManualEngineOverride(true);
+              }}
+              className="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+            />
+          </div>
+        </div>
+
+        {/* Threads */}
+        {engineType !== 'lite-single' && (
+          <div>
+            <label className="text-neutral-400 block font-bold mb-1.5 flex justify-between">
+              <span>Threads</span>
+              <span className="text-emerald-400 font-mono font-bold tabular-nums">{threads}</span>
+            </label>
+            <div className="min-h-[44px] flex items-center">
+              <input 
+                type="range"
+                min="1"
+                max="8"
+                value={threads}
+                onChange={(e) => {
+                  setThreads(parseInt(e.target.value, 10));
+                  setIsManualEngineOverride(true);
+                }}
+                className="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Memory */}
+        <div>
+          <label className="text-neutral-400 block font-bold mb-1.5">Memory</label>
+          <select
+            value={hashSize}
+            onChange={(e) => {
+              setHashSize(parseInt(e.target.value, 10));
+              setIsManualEngineOverride(true);
+            }}
+            className="w-full min-h-[44px] bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-neutral-200 font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
+          >
+            <option value="16">16 MB (Light)</option>
+            <option value="32">32 MB (Standard)</option>
+            <option value="64">64 MB (Deep)</option>
+            <option value="128">128 MB (Max)</option>
+          </select>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-neutral-500 leading-relaxed font-sans">
+        Runs locally in your browser via WebAssembly. Multi-thread engines fall back to single-core automatically if unsupported.
+      </p>
+    </div>
+  );
+
+  // Compact Move Note + Hints strip below playback controls
+  const renderNotesStrip = () => (
+    <div className="w-full max-w-[520px] bg-[#12141a] border border-neutral-800/80 rounded-2xl p-3.5 sm:p-4 flex flex-col gap-3 shadow-lg text-left">
+      {/* Header row: Move summary on left, compact Hints controls on right */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-neutral-800/70">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          {currentPly ? (
+            <>
+              <span className="font-mono font-bold text-xs text-white tabular-nums">
+                {Math.ceil(currentPly.plyIndex / 2)}.{currentPly.color === 'b' ? '..' : ''} {currentPly.san}
+              </span>
+              {currentPly.annotation !== 'normal' && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-neutral-200">
+                  <ChessAnnotationIcon type={currentPly.annotation} size="0.82rem" />
+                  <span>{currentPly.annotation}</span>
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-xs font-bold text-neutral-300">Notes</span>
+          )}
+        </div>
+
+        {/* Compact Hints Toggle + Next/Best Switch */}
+        <div className="flex items-center gap-2 shrink-0">
+          {showEngineArrows && (
+            <div className="flex bg-neutral-950 p-0.5 rounded-lg border border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setAnalysisMode('continuation')}
+                className={`min-h-[32px] px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                  analysisMode === 'continuation'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnalysisMode('alternative')}
+                className={`min-h-[32px] px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                  analysisMode === 'alternative'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                Best
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowEngineArrows(!showEngineArrows)}
+            role="switch"
+            aria-checked={showEngineArrows}
+            aria-label={showEngineArrows ? "Hide hint arrows" : "Show hint arrows"}
+            className="min-h-[36px] flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-neutral-900 transition-colors cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold text-neutral-400">Hints</span>
+            <span className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 flex items-center ${
+              showEngineArrows ? 'bg-emerald-500' : 'bg-neutral-800'
+            }`}>
+              <span
+                className={`w-4 h-4 rounded-full bg-white shadow transform duration-200 ${
+                  showEngineArrows ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Commentary line */}
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={currentPlyIndex}
+          initial={{ opacity: 0, y: 3 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -3 }}
+          transition={{ duration: 0.14 }}
+          className="text-xs sm:text-sm text-neutral-300 leading-relaxed font-medium"
+        >
+          {currentPly
+            ? (currentPly.comment || "Balanced position with active chances for both sides.")
+            : "Pick any move or press play. Drag squares on the board to draw arrows, or tap to clear them."}
+        </motion.p>
+      </AnimatePresence>
+    </div>
+  );
+
+  // Overview Tab Body (Graph + Accuracy Split + Move Quality Table)
+  const renderOverviewTabBody = () => (
+    <div className="w-full h-full overflow-y-auto p-4 sm:p-5 space-y-5 scrollbar-thin scrollbar-thumb-neutral-800">
+      {/* Evaluation Graph */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Score Graph</span>
+          <span className="text-[11px] font-mono text-neutral-500 tabular-nums">{plies.length} moves</span>
+        </div>
+        <EvaluationGraph 
+          plies={plies} 
+          currentPlyIndex={currentPlyIndex} 
+          onMoveClick={(index) => {
+            setIsPlaying(false);
+            setCurrentPlyIndex(index);
+          }} 
+        />
+      </div>
+
+      {/* Accuracies Split Bar */}
+      <div className="w-full flex rounded-2xl overflow-hidden border border-neutral-800 shadow-sm">
+        <div className="flex-1 min-w-0 bg-green-500/10 p-3.5 sm:p-4 flex flex-col items-center justify-center border-r border-neutral-800/60">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-green-400/90 mb-1 truncate max-w-full">
+            {summary.whitePlayer || 'White'}
+          </span>
+          <span className="text-2xl sm:text-4xl leading-none font-black text-white tracking-tight tabular-nums">
+            {moveStats.whiteAccuracy}%
+          </span>
+        </div>
+
+        <div className="flex-1 min-w-0 bg-red-500/10 p-3.5 sm:p-4 flex flex-col items-center justify-center">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-red-400/90 mb-1 truncate max-w-full">
+            {summary.blackPlayer || 'Black'}
+          </span>
+          <span className="text-2xl sm:text-4xl leading-none font-black text-white tracking-tight tabular-nums">
+            {moveStats.blackAccuracy}%
+          </span>
+        </div>
+      </div>
+
+      {/* Quality Breakdown */}
+      <div>
+        <div className="flex items-center justify-between px-1.5 pb-1.5 border-b border-neutral-850 text-xs font-bold gap-2">
+          <div className="flex items-center gap-1.5 text-neutral-300 min-w-0 flex-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-white border border-neutral-400 shrink-0" />
+            <span className="truncate" title={summary.whitePlayer}>
+              {summary.whitePlayer || 'White'}
+            </span>
+          </div>
+
+          <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-extrabold shrink-0">
+            Moves
+          </div>
+
+          <div className="flex items-center gap-1.5 text-neutral-300 min-w-0 flex-1 justify-end text-right">
+            <span className="truncate" title={summary.blackPlayer}>
+              {summary.blackPlayer || 'Black'}
+            </span>
+            <span className="w-2.5 h-2.5 rounded-full bg-neutral-900 border border-neutral-600 shrink-0" />
+          </div>
+        </div>
+
+        <div className="space-y-0.5 mt-2">
+          {categories.map((cat) => {
+            const whiteCount = moveStats.whiteCounts[cat.key] || 0;
+            const blackCount = moveStats.blackCounts[cat.key] || 0;
+            
+            const maxCount = Math.max(
+              1,
+              ...categories.map(c => Math.max(moveStats.whiteCounts[c.key] || 0, moveStats.blackCounts[c.key] || 0))
+            );
+            const whiteWidth = `${(whiteCount / maxCount) * 100}%`;
+            const blackWidth = `${(blackCount / maxCount) * 100}%`;
+
+            const barColorClass =
+              cat.key === 'brilliant' || cat.key === 'great' || cat.key === 'best' ? 'bg-green-500' :
+              cat.key === 'excellent' || cat.key === 'good' || cat.key === 'book' ? 'bg-blue-500' :
+              cat.key === 'inaccuracy' ? 'bg-yellow-500' :
+              cat.key === 'mistake' ? 'bg-orange-500' : 'bg-red-500';
+
+            return (
+              <div
+                key={cat.key}
+                className="flex items-center justify-between py-1 px-1.5 sm:px-2 rounded-lg hover:bg-neutral-800/40 transition-colors group"
+              >
+                <div className="flex-1 min-w-0 relative h-7 flex items-center justify-end pr-2">
+                  <div
+                    className={`absolute right-0 top-0.5 bottom-0.5 opacity-15 rounded-l-md transition-all duration-500 ease-out group-hover:opacity-25 ${barColorClass}`}
+                    style={{ width: whiteWidth }}
+                  />
+                  <span
+                    className={`relative z-10 font-black text-sm sm:text-base tabular-nums ${
+                      whiteCount > 0 ? cat.textClass : 'text-neutral-600'
+                    }`}
+                  >
+                    {whiteCount}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-center gap-1.5 w-24 sm:w-28 mx-1 sm:mx-2 shrink-0">
+                  <ChessAnnotationIcon type={cat.key} size="0.82rem" />
+                  <span className={`text-[11px] font-bold tracking-wide truncate ${cat.textClass}`}>
+                    {cat.label}
+                  </span>
+                </div>
+
+                <div className="flex-1 min-w-0 relative h-7 flex items-center justify-start pl-2">
+                  <div
+                    className={`absolute left-0 top-0.5 bottom-0.5 opacity-15 rounded-r-md transition-all duration-500 ease-out group-hover:opacity-25 ${barColorClass}`}
+                    style={{ width: blackWidth }}
+                  />
+                  <span
+                    className={`relative z-10 font-black text-sm sm:text-base tabular-nums ${
+                      blackCount > 0 ? cat.textClass : 'text-neutral-600'
+                    }`}
+                  >
+                    {blackCount}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Moves Tab Body
+  const renderMovesListBody = () => (
+    <div 
+      ref={moveListRef}
+      className="w-full h-full overflow-y-auto p-3.5 sm:p-5 space-y-1 scrollbar-thin scrollbar-thumb-neutral-800"
+    >
+      <div className="grid grid-cols-12 text-[10px] font-bold text-neutral-500 uppercase tracking-wider pb-2 border-b border-neutral-850 mb-2">
+        <div className="col-span-2">#</div>
+        <div className="col-span-5">White</div>
+        <div className="col-span-5">Black</div>
+      </div>
+
+      {/* Start Row */}
+      <button
+        onClick={() => { setIsPlaying(false); setCurrentPlyIndex(0); }}
+        className={`w-full min-h-[44px] grid grid-cols-12 items-center px-2.5 py-2 rounded-xl text-xs font-semibold text-left transition-all cursor-pointer ${
+          currentPlyIndex === 0
+            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/25'
+            : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 border border-transparent'
+        }`}
+      >
+        <div className="col-span-2 font-mono text-neutral-500 tabular-nums">0.</div>
+        <div className="col-span-10">Start</div>
+      </button>
+
+      {/* Move Pairs */}
+      {movePairs.map((pair) => {
+        const wPly = pair.whitePly;
+        const bPly = pair.blackPly;
+
+        const isWhiteActive = currentPlyIndex === wPly?.plyIndex;
+        const isBlackActive = bPly && currentPlyIndex === bPly.plyIndex;
+
+        return (
+          <div 
+            key={pair.moveNum}
+            className="grid grid-cols-12 items-center text-xs border-b border-neutral-900/30 last:border-0 py-0.5"
+          >
+            <div className="col-span-2 font-mono font-bold text-neutral-500 py-1.5 tabular-nums">
+              {pair.moveNum}.
+            </div>
+
+            <div className="col-span-5 pr-1">
+              {wPly && (
+                <button
+                  id={`ply-row-${wPly.plyIndex}`}
+                  onClick={() => { setIsPlaying(false); setCurrentPlyIndex(wPly.plyIndex); }}
+                  className={`w-full min-h-[40px] text-left py-1.5 px-2 rounded-lg font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
+                    isWhiteActive
+                      ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20'
+                      : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
+                  }`}
+                >
+                  <span className="truncate">{wPly.san}</span>
+                  {renderInlineBadge(wPly.annotation)}
+                </button>
+              )}
+            </div>
+
+            <div className="col-span-5 pl-1">
+              {bPly ? (
+                <button
+                  id={`ply-row-${bPly.plyIndex}`}
+                  onClick={() => { setIsPlaying(false); setCurrentPlyIndex(bPly.plyIndex); }}
+                  className={`w-full min-h-[40px] text-left py-1.5 px-2 rounded-lg font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
+                    isBlackActive
+                      ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20'
+                      : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
+                  }`}
+                >
+                  <span className="truncate">{bPly.san}</span>
+                  {renderInlineBadge(bPly.annotation)}
+                </button>
+              ) : (
+                <span className="text-neutral-600 select-none px-2">...</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Load Tab Body
+  const renderLoadGameBody = () => (
+    <div className="w-full h-full flex flex-col p-4 sm:p-5">
+      {isAnalyzing ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-5 bg-neutral-900/60 rounded-xl border border-neutral-850">
+          <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin mb-3" />
+          <h4 className="text-sm font-bold text-white mb-1">Reviewing Game...</h4>
+          <p className="text-xs text-amber-400 font-mono mb-4">{analysisStep}</p>
+          
+          {currentEvalInfo && (
+            <div className="text-[11px] text-neutral-400 font-mono mb-4 bg-black/40 border border-neutral-850 rounded-xl px-3.5 py-2.5 space-y-1 text-left max-w-xs w-full tabular-nums">
+              <div className="flex justify-between">
+                <span>Depth:</span>
+                <span className="text-white font-bold">{currentEvalInfo.depth} / {depth}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Score:</span>
+                <span className="text-emerald-400 font-bold">{formatEvalLabel(currentEvalInfo.scoreText)}</span>
+              </div>
+              <div className="truncate">
+                <span>Line:</span> <span className="text-neutral-500">{currentEvalInfo.pv}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="w-full max-w-xs h-2 bg-neutral-800 rounded-full overflow-hidden mb-1.5">
+            <div 
+              className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
+              style={{ width: `${analysisProgress}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-mono text-neutral-400 tabular-nums">{analysisProgress}%</span>
+
+          <button
+            onClick={handleStopAnalysis}
+            className="mt-4 min-h-[44px] px-5 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs font-bold text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+          >
+            Stop
+          </button>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col justify-between gap-4">
+          {/* Source Selector Pills */}
+          <div className="grid grid-cols-4 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850">
+            {(['pgn', 'fen', 'chesscom', 'lichess'] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setLoadType(type)}
+                className={`min-h-[40px] px-2 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer truncate ${
+                  loadType === type
+                    ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                {type === 'pgn' ? 'PGN' :
+                 type === 'fen' ? 'FEN' :
+                 type === 'chesscom' ? 'Chess.com' : 'Lichess'}
+              </button>
+            ))}
+          </div>
+
+          {/* Input Content */}
+          <div className="flex-1 flex flex-col justify-center">
+            {loadType === 'pgn' ? (
+              <div className="space-y-2 w-full">
+                <div className="relative h-44 sm:h-52 w-full">
+                  <textarea
+                    value={pgnText}
+                    onChange={(e) => setPgnText(e.target.value)}
+                    placeholder="Paste your PGN here..."
+                    className="w-full h-full bg-neutral-900 border border-neutral-800 rounded-xl p-3.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-emerald-500/60 resize-none"
+                  />
+                  {!pgnText.trim() && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
+                      <FileText className="w-7 h-7 text-neutral-700 mb-1.5" />
+                      <p className="text-xs text-neutral-500">Paste PGN text to review a game</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={loadSamplePgn}
+                    className="min-h-[36px] text-xs font-bold text-emerald-400 hover:text-emerald-300 px-2.5 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                  >
+                    Load Sample
+                  </button>
+                </div>
+              </div>
+            ) : loadType === 'fen' ? (
+              <div className="space-y-2 w-full">
+                <label className="text-xs text-neutral-400 font-bold block">FEN Position</label>
+                <input
+                  type="text"
+                  value={fenText}
+                  onChange={(e) => setFenText(e.target.value)}
+                  placeholder="e.g. r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+                  className="w-full min-h-[48px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none"
+                />
+              </div>
+            ) : (
+              <div className="space-y-4 w-full">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-neutral-400 font-bold block">
+                    {loadType === 'chesscom' ? 'Chess.com Username' : 'Lichess Username'}
+                  </label>
+                  <input
+                    type="text"
+                    value={importUsername}
+                    onChange={(e) => setImportUsername(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+                    placeholder="Enter username..."
+                    className="w-full min-h-[48px] bg-neutral-900 border border-neutral-800 focus:border-emerald-500/60 rounded-xl px-3.5 py-2.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none"
+                  />
+                </div>
+                
+                <div className="flex justify-start">
+                  <button
+                    type="button"
+                    onClick={() => handleSearch()}
+                    disabled={isLoadingGames || !importUsername.trim()}
+                    className="min-h-[44px] px-5 py-2.5 bg-neutral-800 hover:bg-neutral-750 disabled:bg-neutral-900 disabled:text-neutral-700 border border-neutral-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    {isLoadingGames ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5" />
+                    )}
+                    Find Games
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Primary Analyze CTA */}
+          <div className="border-t border-neutral-900 pt-3 mt-auto">
+            <button
+              type="button"
+              onClick={() => {
+                if (loadType === 'pgn') {
+                  handleAnalyze(pgnText);
+                } else if (loadType === 'fen') {
+                  handleAnalyze(fenText);
+                } else {
+                  if (pgnText) {
+                    handleAnalyze(pgnText);
+                  } else {
+                    handleSearch();
+                  }
+                }
+              }}
+              disabled={
+                loadType === 'pgn' ? !pgnText.trim() :
+                loadType === 'fen' ? !fenText.trim() :
+                !importUsername.trim()
+              }
+              className="w-full min-h-[48px] py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-neutral-900 disabled:text-neutral-700 border border-transparent text-neutral-950 text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
+            >
+              <Sparkles className="w-4 h-4 fill-current" />
+              Analyze
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-6 md:px-8 py-6 md:py-10">
+    <div className="w-full max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
       
-      {/* Upper Title Section */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-neutral-900 pb-6 mb-8 gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight flex flex-wrap items-center gap-3">
-            <span className="flex items-center gap-2">
+      {/* Matchup Header + Single Settings Button */}
+      <div className="flex items-start sm:items-center justify-between border-b border-neutral-900 pb-4 mb-5 sm:mb-7 gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg sm:text-2xl md:text-3xl font-black text-white tracking-tight flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="flex items-center gap-1.5 min-w-0">
               {summary.whiteFlair && (
-                <span className="w-8 h-8 flex items-center justify-center bg-gradient-to-br from-blue-500 to-violet-600 rounded-full shadow-md select-none filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" title={`Lichess Flair: ${summary.whiteFlair}`}>
-                  <LichessFlair flair={summary.whiteFlair} className="w-5 h-5" />
+                <span className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center bg-gradient-to-br from-blue-500 to-violet-600 rounded-full shadow-md select-none shrink-0" title={`Lichess Flair: ${summary.whiteFlair}`}>
+                  <LichessFlair flair={summary.whiteFlair} className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </span>
               )}
-              <span>{summary.whitePlayer}</span>
+              <span className="truncate max-w-[180px] sm:max-w-none">{summary.whitePlayer}</span>
             </span>
-            <span className="text-neutral-600 text-lg font-light">vs</span>
-            <span className="flex items-center gap-2">
+            <span className="text-neutral-500 text-sm sm:text-base font-normal">vs</span>
+            <span className="flex items-center gap-1.5 min-w-0">
               {summary.blackFlair && (
-                <span className="w-8 h-8 flex items-center justify-center bg-gradient-to-br from-blue-500 to-violet-600 rounded-full shadow-md select-none filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" title={`Lichess Flair: ${summary.blackFlair}`}>
-                  <LichessFlair flair={summary.blackFlair} className="w-5 h-5" />
+                <span className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center bg-gradient-to-br from-blue-500 to-violet-600 rounded-full shadow-md select-none shrink-0" title={`Lichess Flair: ${summary.blackFlair}`}>
+                  <LichessFlair flair={summary.blackFlair} className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </span>
               )}
-              <span className="text-neutral-300">{summary.blackPlayer}</span>
+              <span className="text-neutral-300 truncate max-w-[180px] sm:max-w-none">{summary.blackPlayer}</span>
             </span>
           </h2>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 text-xs text-neutral-400 font-semibold tracking-wide">
-            <span className="flex items-center gap-1.5">🏟️ {summary.event}</span>
-            <span className="flex items-center gap-1.5">📅 {summary.date}</span>
-            <span className="text-green-400 flex items-center gap-1.5">🏆 Result: {summary.result}</span>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-1 text-xs text-neutral-400 font-medium">
+            <span>{summary.event}</span>
+            <span aria-hidden="true" className="text-neutral-600">·</span>
+            <span className="tabular-nums">{summary.date}</span>
+            <span aria-hidden="true" className="text-neutral-600">·</span>
+            <span className="text-emerald-400 font-bold tabular-nums">{summary.result}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 self-stretch md:self-auto">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-2.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-bold ${
-              showSettings 
-                ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/15' 
-                : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-            title="Configure Engine Settings"
-          >
-            <Settings className={`w-4 h-4 ${showSettings ? 'animate-spin' : ''}`} />
-            <span>Engine Setup</span>
-          </button>
-
-          <div className="px-3.5 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-300 flex items-center gap-2 font-semibold">
-            <span className={`w-2.5 h-2.5 rounded-full ${currentPly ? (currentPly.color === 'w' ? 'bg-white' : 'bg-neutral-600') : 'bg-neutral-800'}`}></span>
-            {currentPly ? (currentPly.color === 'w' ? "White to Move" : "Black to Move") : "Starting Position"}
-          </div>
-        </div>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className={`min-h-[44px] px-3.5 py-2 rounded-xl border transition-all flex items-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+            showSettings 
+              ? 'bg-emerald-500 border-emerald-400 text-neutral-950 shadow-lg shadow-emerald-500/15' 
+              : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:text-white hover:bg-neutral-800'
+          }`}
+          title="Engine Settings"
+        >
+          <Settings className="w-4 h-4" />
+          <span>Settings</span>
+        </button>
       </div>
 
       {/* Error Banner */}
       {errorMessage && (
-        <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-3 text-left">
+        <div className="mb-5 p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-3 text-left">
           <Info className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <h4 className="text-sm font-bold text-rose-300">Analysis Initialization Error</h4>
-            <p className="text-xs text-neutral-300 mt-1 leading-relaxed">{errorMessage}</p>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-sm font-bold text-rose-300">Error</h4>
+            <p className="text-xs text-neutral-300 mt-1 leading-relaxed break-words">{errorMessage}</p>
           </div>
-          <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-rose-300">
+          <button onClick={() => setErrorMessage(null)} className="min-h-[40px] min-w-[40px] flex items-center justify-center text-rose-400 hover:text-rose-300 cursor-pointer">
             <X className="w-4.5 h-4.5" />
           </button>
         </div>
       )}
 
-      {/* Grid View */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-10 items-start">
+      {/* Main 2-Zone Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-8 items-start">
         
-        {/* LEFT PANEL: Chessboard + Interactive evaluation bar + playback controls */}
-        <div className="col-span-1 lg:col-span-5 flex flex-col items-center gap-6">
+        {/* LEFT COLUMN: Eval Bar + Chessboard + Opening Caption + Playback + Notes */}
+        <div className="col-span-1 lg:col-span-5 flex flex-col items-center gap-3.5 sm:gap-4">
           
-          {/* Flex container holding Chessboard and vertical Eval Bar */}
-          <div className="flex gap-4.5 w-full items-stretch justify-center max-w-[530px]">
+          {/* Vertical Eval Bar + Chessboard */}
+          <div className="flex gap-2 sm:gap-3.5 w-full items-stretch justify-center max-w-[530px]">
             
-            {/* 1. PROFESSIONAL VERTICAL EVALUATION BAR */}
-            <div className={`w-10 bg-neutral-900 rounded-2xl overflow-hidden flex ${orientation === 'white' ? 'flex-col' : 'flex-col-reverse'} justify-between border border-neutral-800/80 shadow-inner relative`} title="Evaluation meter">
-              {/* Black Fill (top if white orientation) */}
+            {/* Vertical Eval Bar */}
+            <div className={`w-6 sm:w-8 md:w-9 shrink-0 bg-neutral-900 rounded-xl overflow-hidden flex ${orientation === 'white' ? 'flex-col' : 'flex-col-reverse'} justify-between border border-neutral-800/80 shadow-inner relative`} title="Evaluation bar">
+              {/* Black Fill */}
               <div className="flex-1 bg-neutral-950 transition-all duration-300 relative">
-                {/* Score display text if evaluation is negative */}
                 {evalPercentage < 50 && (
-                  <span className={`absolute ${orientation === 'white' ? 'top-2' : 'bottom-2'} left-0 right-0 text-xs font-bold font-mono text-white text-center select-none z-10 leading-none px-0.5 truncate`}>
-                    {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText) : '0.00'}
+                  <span className={`absolute ${orientation === 'white' ? 'top-1.5 sm:top-2' : 'bottom-1.5 sm:bottom-2'} left-0 right-0 text-[8px] sm:text-[10px] font-bold font-mono text-white text-center select-none z-10 leading-none px-0.5 tabular-nums`}>
+                    {activeEvalLabel}
                   </span>
                 )}
               </div>
               
-              {/* Separation line (equal mark) */}
+              {/* Equal midline */}
               <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-neutral-700/50 z-20 pointer-events-none" />
 
-              {/* White Fill (bottom if white orientation) */}
+              {/* White Fill */}
               <div 
                 className={`bg-neutral-100 transition-all duration-300 relative flex ${orientation === 'white' ? 'flex-col' : 'flex-col-reverse'} justify-end`}
                 style={{ height: `${evalPercentage}%` }}
               >
-                {/* Score display text if evaluation is positive */}
                 {evalPercentage >= 50 && (
-                  <span className={`absolute ${orientation === 'white' ? 'bottom-2' : 'top-2'} left-0 right-0 text-xs font-bold font-mono text-neutral-900 text-center select-none z-10 leading-none px-0.5 truncate`}>
-                    {currentPly ? ((currentPly as any).scoreText || currentEvalInfo?.scoreText || '0.00') : '0.00'}
+                  <span className={`absolute ${orientation === 'white' ? 'bottom-1.5 sm:bottom-2' : 'top-1.5 sm:top-2'} left-0 right-0 text-[8px] sm:text-[10px] font-bold font-mono text-neutral-900 text-center select-none z-10 leading-none px-0.5 tabular-nums`}>
+                    {activeEvalLabel}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* 2. CHESSBOARD GRID */}
-            <div className="flex-1 max-w-[480px] flex flex-col gap-3">
+            {/* Chessboard */}
+            <div className="flex-1 min-w-0 max-w-[480px] flex flex-col gap-2">
               <Chessboard 
                 board={currentBoardState}
                 fen={currentPly ? currentPly.fen : "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}
@@ -2080,6 +2850,8 @@ export default function ReviewView() {
                 toSquare={toSquare}
                 annotation={currentPly?.annotation}
                 orientation={orientation}
+                onUserArrowToggle={handleUserArrowToggle}
+                onClearUserArrows={handleClearUserArrows}
                 arrows={(() => {
                   const seen = new Set<string>();
                   return [...userArrows, ...liveArrows].filter((arr) => {
@@ -2095,107 +2867,33 @@ export default function ReviewView() {
                   setUserArrows(filtered);
                 }}
               />
-              {/* Dynamic Opening Name / Theory Indicator */}
               {openingName && (
-                <div className="px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-300 flex items-center gap-2.5 shadow-md">
-                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  <div className="text-left leading-relaxed">
-                    <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider block leading-none mb-1">Theory / Book Opening</span>
-                    <span className="font-bold text-neutral-200">{openingName}</span>
-                  </div>
-                </div>
+                <p className="text-xs text-neutral-400 truncate px-1 text-left">
+                  <span className="text-neutral-500 font-medium">Opening:</span>{' '}
+                  <span className="text-neutral-200 font-semibold">{openingName}</span>
+                </p>
               )}
             </div>
           </div>
 
-          {/* Engine specifications metadata banner */}
-          <div className="w-full max-w-[520px] bg-neutral-900/40 border border-neutral-800/60 rounded-2xl p-4 flex items-center justify-between">
-            <div className="text-left">
-              <span className="text-[10px] text-neutral-500 font-bold tracking-wider block uppercase">Engine Profile</span>
-              <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5 mt-0.5 font-mono">
-                <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                {engineType === 'large-multi' ? 'Stockfish 18 NNUE (Large)' : engineType === 'lite-multi' ? 'Stockfish 18 Lite (Multi)' : 'Stockfish 18 Lite (Single)'}
-              </span>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${isAnalyzing ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></span>
-              <span className="text-xs text-neutral-400 font-semibold font-mono">
-                {isAnalyzing ? 'Calculating...' : 'Ready'}
-              </span>
-            </div>
-          </div>
-
-          {/* Engine Analysis & Arrow Settings Panel */}
-          <div className="w-full max-w-[520px] bg-neutral-900/45 border border-neutral-850 rounded-2xl p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-neutral-400 font-extrabold tracking-wider uppercase flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-green-450 animate-pulse" />
-                Live Analysis Overlay
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-neutral-400 font-medium">Show Best-Move Arrows</span>
-                <button
-                  onClick={() => setShowEngineArrows(!showEngineArrows)}
-                  className={`w-10 h-5.5 rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer ${
-                    showEngineArrows ? 'bg-green-500' : 'bg-neutral-800'
-                  }`}
-                  title={showEngineArrows ? "Hide engine analysis arrows" : "Show engine analysis arrows"}
-                >
-                  <div
-                    className={`w-4.5 h-4.5 rounded-full bg-white shadow-md transform duration-200 ${
-                      showEngineArrows ? 'translate-x-4.5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {showEngineArrows && (
-              <div className="flex items-center justify-between pt-2.5 border-t border-neutral-850">
-                <span className="text-xs text-neutral-400 font-semibold">Analysis Mode</span>
-                <div className="flex bg-neutral-950 p-1 rounded-xl border border-neutral-850">
-                  <button
-                    onClick={() => setAnalysisMode('continuation')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      analysisMode === 'continuation'
-                        ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                        : 'text-neutral-500 hover:text-neutral-350'
-                    }`}
-                  >
-                    Top Continuation
-                  </button>
-                  <button
-                    onClick={() => setAnalysisMode('alternative')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      analysisMode === 'alternative'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : 'text-neutral-500 hover:text-neutral-350'
-                    }`}
-                  >
-                    Top Alternative
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* PLAYBACK CONTROL DECK */}
-          <div className="w-full max-w-[520px] flex flex-col items-center gap-4 bg-[#141517] border border-neutral-850 rounded-2xl p-4.5 shadow-xl">
-            <div className="flex items-center justify-center gap-2.5 w-full">
+          {/* Clean Playback Controls (No Draw Button) */}
+          <div className="w-full max-w-[520px] bg-[#12141a] border border-neutral-800/80 rounded-2xl p-2.5 sm:p-3 shadow-lg">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5 w-full">
               <button
                 onClick={() => setOrientation(prev => prev === 'white' ? 'black' : 'white')}
-                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
-                title="Flip Board"
+                className="h-11 sm:h-12 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                title="Flip Board (F)"
+                aria-label="Flip Board"
               >
-                <Repeat className="w-4.5 h-4.5" />
+                <Repeat className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               </button>
 
               <button
                 onClick={handleFirst}
                 disabled={currentPlyIndex === 0}
-                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
-                title="Go to Start (Home)"
+                className="h-11 sm:h-12 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                title="First Move"
+                aria-label="First move"
               >
                 <SkipBack className="w-4 h-4" />
               </button>
@@ -2203,29 +2901,32 @@ export default function ReviewView() {
               <button
                 onClick={handlePrev}
                 disabled={currentPlyIndex === 0}
-                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                className="h-11 sm:h-12 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
                 title="Previous Move (←)"
+                aria-label="Previous move"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
 
               <button
                 onClick={handleTogglePlay}
-                className={`w-13 h-13 rounded-2xl flex items-center justify-center transition-all cursor-pointer border shadow-md active:scale-95 ${
+                className={`h-11 sm:h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer border shadow-md active:scale-95 ${
                   isPlaying 
-                    ? 'bg-blue-600 border-blue-500 hover:bg-blue-700 text-white shadow-blue-500/10' 
-                    : 'bg-green-500 border-green-400 hover:bg-green-600 text-neutral-950 shadow-green-500/10'
+                    ? 'bg-blue-600 border-blue-500 hover:bg-blue-700 text-white' 
+                    : 'bg-emerald-500 border-emerald-400 hover:bg-emerald-400 text-neutral-950'
                 }`}
-                title={isPlaying ? "Pause Autoplay" : "Play Autoplay"}
+                title={isPlaying ? "Pause" : "Play"}
+                aria-label={isPlaying ? "Pause" : "Play"}
               >
-                {isPlaying ? <Pause className="w-5.5 h-5.5 fill-current" /> : <Play className="w-5.5 h-5.5 fill-current ml-0.5" />}
+                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
               </button>
 
               <button
                 onClick={handleNext}
                 disabled={currentPlyIndex === totalPlies}
-                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                className="h-11 sm:h-12 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
                 title="Next Move (→)"
+                aria-label="Next move"
               >
                 <ChevronRight className="w-5 h-5" />
               </button>
@@ -2233,575 +2934,215 @@ export default function ReviewView() {
               <button
                 onClick={handleLast}
                 disabled={currentPlyIndex === totalPlies}
-                className="w-11 h-11 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
-                title="Go to Checkmate (End)"
+                className="h-11 sm:h-12 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-20 disabled:hover:bg-neutral-900 text-neutral-300 flex items-center justify-center transition-all cursor-pointer border border-neutral-800/60 active:scale-95"
+                title="Last Move"
+                aria-label="Last move"
               >
                 <SkipForward className="w-4 h-4" />
               </button>
 
               <button
                 onClick={toggleMute}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer border active:scale-95 ${
+                className={`h-11 sm:h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer border active:scale-95 ${
                   isMuted 
-                    ? 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:text-neutral-400 hover:bg-neutral-850' 
-                    : 'bg-neutral-900 border-neutral-800 text-emerald-400 hover:text-emerald-350 hover:bg-neutral-800/80'
+                    ? 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:text-neutral-300' 
+                    : 'bg-neutral-900 border-neutral-800 text-emerald-400 hover:text-emerald-300'
                 }`}
-                title={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+                title={isMuted ? "Unmute" : "Mute"}
+                aria-label={isMuted ? "Unmute" : "Mute"}
               >
-                {isMuted ? <VolumeX className="w-4.5 h-4.5" /> : <Volume2 className="w-4.5 h-4.5" />}
+                {isMuted ? <VolumeX className="w-4 h-4 sm:w-4.5 sm:h-4.5" /> : <Volume2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />}
               </button>
             </div>
           </div>
 
+          {/* Compact Notes & Hints Strip */}
+          {renderNotesStrip()}
         </div>
 
-        {/* RIGHT PANEL: Stats Badges, Move List, Engine Explanations */}
-        <div className="col-span-1 lg:col-span-7 flex flex-col gap-6 text-left">
-          
-          {/* Collapsible engine settings configuration dashboard */}
+        {/* RIGHT COLUMN: Unified Single Panel (Moves | Overview | Load) */}
+        <div className="col-span-1 lg:col-span-7 flex flex-col gap-4 text-left min-w-0 w-full max-w-[520px] mx-auto lg:max-w-none">
+
+          {/* Settings Drawer */}
           <AnimatePresence>
             {showSettings && (
-              <motion.div 
-                className="bg-[#141517] border border-blue-500/30 rounded-2xl p-5 shadow-lg space-y-4"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
-                  <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-2">
-                    <Settings className="w-4 h-4 animate-spin" />
-                    Local Engine Preferences
-                  </h4>
-                  <button 
+              isDesktopLg ? (
+                <motion.div 
+                  className="bg-[#12141a] border border-emerald-500/30 rounded-2xl p-5 shadow-xl"
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  {renderSettingsContent()}
+                </motion.div>
+              ) : (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
                     onClick={() => setShowSettings(false)}
-                    className="text-neutral-500 hover:text-white"
+                    className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: 40 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 40 }}
+                    transition={{ duration: 0.2 }}
+                    className="relative z-10 w-full sm:max-w-lg bg-[#12141a] border border-emerald-500/30 rounded-t-3xl sm:rounded-2xl p-5 pb-7 sm:pb-5 shadow-2xl max-h-[85dvh] overflow-y-auto"
                   >
-                    <X className="w-4.5 h-4.5" />
-                  </button>
+                    <div className="w-10 h-1.5 bg-neutral-700 rounded-full mx-auto mb-4 sm:hidden" />
+                    {renderSettingsContent()}
+                  </motion.div>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  {/* Select Engine Version */}
-                  <div>
-                    <label className="text-neutral-400 block font-bold mb-1.5">Engine Flavor</label>
-                    <select
-                      value={engineType}
-                      onChange={(e) => setEngineType(e.target.value as EngineType)}
-                      className="w-full bg-neutral-900 border border-neutral-850 rounded-xl p-2.5 text-neutral-300 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
-                    >
-                      <option value="lite-single">Stockfish 18 Lite (Single-Core — Fast & Pure)</option>
-                      <option value="lite-multi">Stockfish 18 Lite (Multi-Threaded — High Performance)</option>
-                      <option value="large-multi">Stockfish 18 NNUE (Neural Net — Master-Level)</option>
-                    </select>
-                  </div>
-
-                  {/* Calculation Depth */}
-                  <div>
-                    <label className="text-neutral-400 block font-bold mb-1.5 flex justify-between">
-                      <span>Search Depth</span>
-                      <span className="text-blue-400 font-mono font-bold">{depth} plies</span>
-                    </label>
-                    <input 
-                      type="range"
-                      min="5"
-                      max="15"
-                      value={depth}
-                      onChange={(e) => setDepth(parseInt(e.target.value, 10))}
-                      className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                    />
-                  </div>
-
-                  {/* Threads (for multi-threaded versions) */}
-                  {engineType !== 'lite-single' && (
-                    <div>
-                      <label className="text-neutral-400 block font-bold mb-1.5 flex justify-between">
-                        <span>CPU Thread Count</span>
-                        <span className="text-blue-400 font-mono font-bold">{threads} Threads</span>
-                      </label>
-                      <input 
-                        type="range"
-                        min="1"
-                        max="8"
-                        value={threads}
-                        onChange={(e) => setThreads(parseInt(e.target.value, 10))}
-                        className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                      />
-                    </div>
-                  )}
-
-                  {/* Hash Cache size */}
-                  <div>
-                    <label className="text-neutral-400 block font-bold mb-1.5">RAM Cache Size (Hash)</label>
-                    <select
-                      value={hashSize}
-                      onChange={(e) => setHashSize(parseInt(e.target.value, 10))}
-                      className="w-full bg-neutral-900 border border-neutral-850 rounded-xl p-2.5 text-neutral-300 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
-                    >
-                      <option value="16">16 MB (Lighter cache)</option>
-                      <option value="32">32 MB (Standard)</option>
-                      <option value="64">64 MB (Deep cache)</option>
-                      <option value="128">128 MB (Heavy analysis)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <p className="text-[10px] text-neutral-500 leading-relaxed font-sans mt-2">
-                  ℹ️ Multi-threaded engines require security headers configured on your web host. MoveLens comes pre-configured with active CORS, COOP, and COEP headers to guarantee top-tier performance.
-                </p>
-              </motion.div>
+              )
             )}
           </AnimatePresence>
 
-          {/* Summary Badges Panel */}
-          <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg">
-            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-4">
-              Game Evaluation Summary
-            </h3>
-            
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {getAnnotationBadge('brilliant', summary.brilliantCount)}
-              {getAnnotationBadge('great', summary.greatCount)}
-              {getAnnotationBadge('best', summary.bestCount)}
-              {getAnnotationBadge('excellent', summary.excellentCount)}
-              {getAnnotationBadge('good', summary.goodCount)}
-              {getAnnotationBadge('book', summary.bookCount)}
-              {getAnnotationBadge('inaccuracy', summary.inaccuracyCount)}
-              {getAnnotationBadge('mistake', summary.mistakeCount)}
-              {getAnnotationBadge('miss', summary.missCount)}
-              {getAnnotationBadge('blunder', summary.blunderCount)}
-            </div>
-          </div>
-
-          {/* Move List and Load Game tabs container */}
-          <div className="bg-[#141517] border border-neutral-850 rounded-2xl overflow-hidden flex flex-col h-[340px] shadow-lg">
-            
-            {/* Tab header navigation bar */}
-            <div className="flex bg-neutral-950 border-b border-neutral-900 p-1.5 justify-between items-center">
-              <div className="flex gap-1.5">
+          {/* Unified Single Inspector Panel */}
+          <div className="bg-[#12141a] border border-neutral-800/80 rounded-2xl overflow-hidden flex flex-col shadow-xl min-h-[420px] lg:h-[620px]">
+            {/* Top Tab Strip */}
+            <div
+              data-no-page-swipe="true"
+              className="flex items-center justify-between gap-2 bg-neutral-950 border-b border-neutral-850 p-1.5"
+            >
+              <div className="grid grid-cols-3 gap-1 flex-1 sm:flex-none sm:flex">
                 <button
-                  onClick={() => setActiveTab('moves')}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'moves'
-                      ? 'bg-[#141517] text-white shadow'
+                  type="button"
+                  onClick={() => setPanelTab('moves')}
+                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    panelTab === 'moves'
+                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
                       : 'text-neutral-400 hover:text-neutral-200'
                   }`}
                 >
-                  Move List
+                  Moves
                 </button>
                 <button
-                  onClick={() => setActiveTab('load')}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'load'
-                      ? 'bg-[#141517] text-white shadow'
+                  type="button"
+                  onClick={() => setPanelTab('overview')}
+                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    panelTab === 'overview'
+                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
                       : 'text-neutral-400 hover:text-neutral-200'
                   }`}
                 >
-                  Load Game
+                  Overview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanelTab('load')}
+                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    panelTab === 'load'
+                      ? 'bg-[#1a1d24] text-white border border-neutral-700/80 shadow-sm'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  Load
                 </button>
               </div>
 
-              {/* Live engine calculation speedometer indicator */}
-              {isAnalyzing && currentEvalInfo && (
-                <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2.5 py-1 rounded-lg">
-                  <Activity className="w-3.5 h-3.5 animate-pulse" />
-                  <span>{(currentEvalInfo.nps / 1000).toFixed(0)}k NPS</span>
-                </div>
-              )}
-            </div>
-
-            {/* Tab body viewport */}
-            <div className="flex-1 overflow-hidden relative">
-              {activeTab === 'moves' ? (
-                /* MOVES TABLE VIEWPORT */
-                <div 
-                  ref={moveListRef}
-                  className="w-full h-full overflow-y-auto p-4 space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800"
-                >
-                  {/* Pair header row */}
-                  <div className="grid grid-cols-12 text-[10px] font-bold text-neutral-500 uppercase tracking-wider pb-2 border-b border-neutral-850 mb-2">
-                    <div className="col-span-2">#</div>
-                    <div className="col-span-5">White</div>
-                    <div className="col-span-5">Black</div>
-                  </div>
-
-                  {/* Special Row: Initial Setup / Move 0 */}
+              {isAnalyzing ? (
+                <div className="flex items-center gap-2 pr-1.5 shrink-0">
+                  {currentEvalInfo && (
+                    <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono font-bold text-amber-400 tabular-nums">
+                      <Activity className="w-3.5 h-3.5" />
+                      {(currentEvalInfo.nps / 1000).toFixed(0)}k
+                    </span>
+                  )}
                   <button
-                    onClick={() => { setIsPlaying(false); setCurrentPlyIndex(0); }}
-                    className={`w-full grid grid-cols-12 p-2 rounded-xl text-xs font-semibold text-left transition-all cursor-pointer ${
-                      currentPlyIndex === 0
-                        ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
-                        : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 border border-transparent'
-                    }`}
+                    type="button"
+                    onClick={handleStopAnalysis}
+                    className="min-h-[36px] px-3 py-1 rounded-lg bg-rose-500/15 border border-rose-500/25 text-xs font-bold text-rose-400 hover:bg-rose-500 hover:text-white transition-colors cursor-pointer"
                   >
-                    <div className="col-span-2 font-mono text-neutral-500">0.</div>
-                    <div className="col-span-10">Starting Position</div>
+                    Stop
                   </button>
-
-                  {/* Moves loop */}
-                  {movePairs.map((pair) => {
-                    const wPly = pair.whitePly;
-                    const bPly = pair.blackPly;
-
-                    const isWhiteActive = currentPlyIndex === wPly?.plyIndex;
-                    const isBlackActive = bPly && currentPlyIndex === bPly.plyIndex;
-
-                    return (
-                      <div 
-                        key={pair.moveNum}
-                        className="grid grid-cols-12 items-center text-xs border-b border-neutral-900/30 last:border-0"
-                      >
-                        {/* Move Index Column */}
-                        <div className="col-span-2 font-mono font-bold text-neutral-500 py-1.5">
-                          {pair.moveNum}.
-                        </div>
-
-                        {/* White column */}
-                        <div className="col-span-5 pr-1.5">
-                          {wPly && (
-                            <button
-                              id={`ply-row-${wPly.plyIndex}`}
-                              onClick={() => { setIsPlaying(false); setCurrentPlyIndex(wPly.plyIndex); }}
-                              className={`w-full text-left py-1.5 px-2.5 rounded-lg font-bold flex items-center justify-between transition-all cursor-pointer ${
-                                isWhiteActive
-                                  ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20 scale-[1.01]'
-                                  : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
-                              }`}
-                            >
-                              <span>{wPly.san}</span>
-                              {renderInlineBadge(wPly.annotation)}
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Black column */}
-                        <div className="col-span-5 pl-1.5">
-                          {bPly ? (
-                            <button
-                              id={`ply-row-${bPly.plyIndex}`}
-                              onClick={() => { setIsPlaying(false); setCurrentPlyIndex(bPly.plyIndex); }}
-                              className={`w-full text-left py-1.5 px-2.5 rounded-lg font-bold flex items-center justify-between transition-all cursor-pointer ${
-                                isBlackActive
-                                  ? 'bg-blue-600 text-white font-black shadow shadow-blue-600/20 scale-[1.01]'
-                                  : 'text-neutral-300 hover:bg-neutral-800 hover:text-white'
-                              }`}
-                            >
-                              <span>{bPly.san}</span>
-                              {renderInlineBadge(bPly.annotation)}
-                            </button>
-                          ) : (
-                            <span className="text-neutral-600 select-none">...</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               ) : (
-                /* UNIFIED LOAD GAME TAB */
-                <div className="w-full h-full flex flex-col p-4 bg-[#111112]">
-                  {isAnalyzing ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center p-4 bg-neutral-900/80 rounded-xl border border-neutral-850">
-                      <RefreshCw className="w-7 h-7 text-blue-500 animate-spin mb-3" />
-                      <h4 className="text-xs font-bold text-white mb-1.5">Analyzing Chess Game with Stockfish</h4>
-                      <p className="text-[10px] text-amber-400 font-mono mb-3">{analysisStep}</p>
-                      
-                      {/* Active analysis telemetry data */}
-                      {currentEvalInfo && (
-                        <div className="text-[9px] text-neutral-400 font-mono mb-3 bg-black/40 border border-neutral-850 rounded-lg px-3 py-1.5 space-y-0.5 text-left max-w-xs w-full">
-                          <div className="flex justify-between">
-                            <span>Engine Depth:</span>
-                            <span className="text-blue-400 font-bold">{currentEvalInfo.depth} / {depth}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Score:</span>
-                            <span className="text-green-400 font-bold">{currentEvalInfo.scoreText}</span>
-                          </div>
-                          <div className="truncate">
-                            <span>Line:</span> <span className="text-neutral-500">{currentEvalInfo.pv}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Progress bar container */}
-                      <div className="w-full max-w-xs h-1.5 bg-neutral-800 rounded-full overflow-hidden relative mb-1.5">
-                        <div 
-                          className="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-300"
-                          style={{ width: `${analysisProgress}%` }}
-                        />
-                      </div>
-                      <span className="text-[9px] font-mono text-neutral-500">{analysisProgress}% Complete</span>
-
-                      <button
-                        onClick={handleStopAnalysis}
-                        className="mt-3 px-3 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[9px] font-bold text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
-                      >
-                        Cancel Analysis
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex-1 flex flex-col justify-between">
-                      {/* Dropdown Selector Row */}
-                      <div className="flex items-center justify-between pb-2 border-b border-neutral-850">
-                        <span className="text-xs font-bold text-neutral-400">Load game from</span>
-                        
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 hover:border-neutral-700 text-xs font-bold text-neutral-200 rounded-xl transition-all cursor-pointer"
-                          >
-                            <span>
-                              {loadType === 'pgn' ? 'PGN' :
-                               loadType === 'fen' ? 'FEN' :
-                               loadType === 'chesscom' ? 'Chess.com' : 'Lichess'}
-                            </span>
-                            <ChevronDown className="w-3.5 h-3.5 text-neutral-500" />
-                          </button>
-                          
-                          <AnimatePresence>
-                            {isDropdownOpen && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)} />
-                                <motion.div
-                                  initial={{ opacity: 0, y: 5 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: 5 }}
-                                  className="absolute right-0 mt-1.5 w-32 bg-[#141517] border border-neutral-800 rounded-xl shadow-xl py-1 z-20 overflow-hidden"
-                                >
-                                  {(['pgn', 'fen', 'chesscom', 'lichess'] as const).map((type) => (
-                                    <button
-                                      key={type}
-                                      type="button"
-                                      onClick={() => {
-                                        setLoadType(type);
-                                        setIsDropdownOpen(false);
-                                      }}
-                                      className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold transition-all hover:bg-neutral-900 ${
-                                        loadType === type ? 'bg-blue-600/10 text-blue-400 font-bold' : 'text-neutral-400 hover:text-neutral-200'
-                                      }`}
-                                    >
-                                      {type === 'pgn' ? 'PGN' :
-                                       type === 'fen' ? 'FEN' :
-                                       type === 'chesscom' ? 'Chess.com' : 'Lichess'}
-                                    </button>
-                                  ))}
-                                </motion.div>
-                              </>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-
-                      {/* Content Area Based on Selected loadType */}
-                      <div className="flex-1 flex flex-col justify-center py-2">
-                        {loadType === 'pgn' ? (
-                          <div className="relative h-32 w-full">
-                            <textarea
-                              value={pgnText}
-                              onChange={(e) => setPgnText(e.target.value)}
-                              placeholder="Paste standard algebraic notation PGN here..."
-                              className="w-full h-full bg-neutral-900 border border-neutral-850 rounded-xl p-3 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-blue-500/50 resize-none"
-                            />
-                            {!pgnText.trim() && (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
-                                <FileText className="w-7 h-7 text-neutral-850 mb-1" />
-                                <p className="text-[11px] text-neutral-500">
-                                  Paste a standard chess PGN format game.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        ) : loadType === 'fen' ? (
-                          <div className="space-y-1.5 w-full">
-                            <label className="text-[9px] text-neutral-500 font-black uppercase tracking-wider">FEN string</label>
-                            <input
-                              type="text"
-                              value={fenText}
-                              onChange={(e) => setFenText(e.target.value)}
-                              placeholder="e.g. r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
-                              className="w-full bg-neutral-900 border border-neutral-850 focus:border-blue-500/50 rounded-xl px-3.5 py-2.5 text-xs font-mono text-neutral-200 placeholder-neutral-600 focus:outline-none"
-                            />
-                          </div>
-                        ) : (
-                          <div className="space-y-2 w-full">
-                            <div className="space-y-1">
-                              <label className="text-[9px] text-neutral-500 font-black uppercase tracking-wider">Username</label>
-                              <input
-                                type="text"
-                                value={importUsername}
-                                onChange={(e) => setImportUsername(e.target.value)}
-                                placeholder="Enter Username..."
-                                className="w-full bg-neutral-900 border border-neutral-850 focus:border-blue-500/50 rounded-xl px-3.5 py-2 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none"
-                              />
-                            </div>
-                            
-                            <div className="flex justify-center">
-                              <button
-                                type="button"
-                                onClick={() => handleSearch()}
-                                disabled={isLoadingGames || !importUsername.trim()}
-                                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-900 disabled:text-neutral-700 disabled:border-neutral-900 border border-transparent text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow"
-                              >
-                                {isLoadingGames ? (
-                                  <RefreshCw className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Search className="w-3 h-3" />
-                                )}
-                                Search
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Lower Action / Analyse Button */}
-                      <div className="border-t border-neutral-900/60 pt-2.5 mt-auto">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (loadType === 'pgn') {
-                              handleAnalyze(pgnText);
-                            } else if (loadType === 'fen') {
-                              handleAnalyze(fenText);
-                            } else {
-                              if (pgnText) {
-                                handleAnalyze(pgnText);
-                              } else {
-                                handleSearch();
-                              }
-                            }
-                          }}
-                          disabled={
-                            loadType === 'pgn' ? !pgnText.trim() :
-                            loadType === 'fen' ? !fenText.trim() :
-                            !importUsername.trim()
-                          }
-                          className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-900 disabled:text-neutral-700 disabled:border-neutral-900 border border-transparent text-white text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 fill-current" />
-                          Analyse
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <span className="hidden sm:inline text-[11px] font-mono text-neutral-500 pr-2.5 tabular-nums shrink-0">
+                  {plies.length} moves
+                </span>
               )}
             </div>
-          </div>
 
-          {/* ACTIVE POSITION COMMENTARY PANEL */}
-          <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg flex-1 flex flex-col justify-between">
-            <div className="flex items-center gap-2 border-b border-neutral-850 pb-3 mb-3 shrink-0">
-              <Zap className="w-4 h-4 text-blue-400" />
-              <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
-                Position Analysis & Commentary
-              </h4>
-            </div>
+            {/* Slim live progress bar while running */}
+            {isAnalyzing && (
+              <div className="w-full h-1 bg-neutral-900">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
+                  style={{ width: `${analysisProgress}%` }}
+                />
+              </div>
+            )}
 
-            <div className="flex-1 flex flex-col justify-center min-h-[80px]">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentPlyIndex}
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -5 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  {currentPly ? (
-                    <div className="space-y-2.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-sans font-black text-sm text-white">
-                          Move {Math.ceil(currentPly.plyIndex / 2)}:
-                        </span>
-                        <span className="font-mono font-bold text-xs bg-neutral-900 text-blue-400 px-2 py-0.5 rounded border border-neutral-800">
-                          {currentPly.color === 'w' ? 'White' : 'Black'} played {currentPly.san}
-                        </span>
-                        
-                        {currentPly.annotation !== 'normal' && (
-                          <span className={`inline-flex items-center gap-1.5 text-[10px] font-black px-2 py-0.5 rounded border leading-none uppercase ${
-                            currentPly.annotation === 'brilliant' ? 'bg-green-500/5 text-green-400 border-green-500/20' :
-                            currentPly.annotation === 'great' ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20' :
-                            currentPly.annotation === 'best' ? 'bg-blue-500/5 text-blue-400 border-blue-500/20' :
-                            currentPly.annotation === 'book' ? 'bg-sky-500/5 text-sky-400 border-sky-500/20' :
-                            currentPly.annotation === 'inaccuracy' ? 'bg-amber-500/5 text-amber-500 border-amber-500/20' :
-                            currentPly.annotation === 'mistake' ? 'bg-orange-500/5 text-orange-400 border-orange-500/20' :
-                            'bg-rose-500/5 text-rose-400 border-rose-500/25'
-                          }`}>
-                            <ChessAnnotationIcon type={currentPly.annotation} size="1.15rem" />
-                            <span>{currentPly.annotation}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-sm text-neutral-300 leading-relaxed font-medium font-sans">
-                        {currentPly.comment || "Position remains complex with highly double-edged lines. Stockfish registered equal play."}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-center py-4">
-                      <p className="text-xs text-neutral-500 font-medium">
-                        Use the playback controls or select any move in the list to trigger automatic Stockfish commentary and move evaluation highlights.
-                      </p>
-                    </div>
-                  )}
-                </motion.div>
-              </AnimatePresence>
+            {/* Panel Body */}
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+              {panelTab === 'moves' && renderMovesListBody()}
+              {panelTab === 'overview' && renderOverviewTabBody()}
+              {panelTab === 'load' && renderLoadGameBody()}
             </div>
           </div>
 
         </div>
       </div>
 
-      {/* SELECT A GAME MODAL */}
+      {/* PICK A GAME MODAL (Bottom Sheet on Mobile, Centered Dialog on sm+) */}
       <AnimatePresence>
         {isGameModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsGameModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             />
             
             {/* Modal Box */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative w-full max-w-lg bg-[#141517] border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] z-10"
+              initial={{ opacity: 0, y: 35, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 35, scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full sm:max-w-lg bg-[#141517] border border-neutral-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85dvh] z-10"
             >
+              {/* Mobile drag affordance */}
+              <div className="w-10 h-1.5 bg-neutral-700 rounded-full mx-auto mt-3 sm:hidden" />
+
               {/* Close Button */}
               <button
                 onClick={() => setIsGameModalOpen(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-neutral-850 text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+                className="absolute top-3 right-3 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-neutral-850 text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+                aria-label="Close game list"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4.5 h-4.5" />
               </button>
 
               {/* Header */}
-              <div className="p-5 border-b border-neutral-850 text-center">
-                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">Select a game</h3>
-                <p className="text-[11px] text-neutral-500 font-medium font-mono mt-1">
+              <div className="p-4 sm:p-5 border-b border-neutral-850 text-center">
+                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">Pick a Game</h3>
+                <p className="text-[11px] text-neutral-450 font-medium font-mono mt-1 truncate px-10">
                   {loadType === 'chesscom' ? 'Chess.com' : 'Lichess'} &gt; {importUsername}
                 </p>
                 
                 {/* Date switcher pagination: <- July 2026 -> */}
-                <div className="flex items-center justify-center gap-4 mt-4 bg-neutral-950/40 border border-neutral-850/50 rounded-xl px-4 py-2 w-fit mx-auto">
+                <div className="flex items-center justify-center gap-2 sm:gap-4 mt-3 bg-neutral-950/50 border border-neutral-850/60 rounded-xl px-2 py-1 w-fit mx-auto">
                   <button
                     onClick={handlePrevMonth}
-                    className="p-1 rounded-md hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    aria-label="Previous month"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-bold text-white min-w-[100px]">
+                  <span className="text-xs font-bold text-white min-w-[115px] tabular-nums">
                     {new Date(importYear, importMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
                   </span>
                   <button
                     onClick={handleNextMonth}
-                    className="p-1 rounded-md hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    aria-label="Next month"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -2809,14 +3150,14 @@ export default function ReviewView() {
               </div>
 
               {/* Content / Games List */}
-              <div className="p-5 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-neutral-800 flex-1">
+              <div className="p-3.5 sm:p-5 overflow-y-auto scrollbar-thin scrollbar-thumb-neutral-800 flex-1">
                 {isLoadingGames ? (
                   <div className="py-12 flex flex-col items-center justify-center gap-3">
                     <RefreshCw className="w-7 h-7 text-blue-500 animate-spin" />
                     <p className="text-xs text-neutral-400 font-mono">Fetching recent chess games...</p>
                   </div>
                 ) : importError ? (
-                  <div className="py-6 px-4">
+                  <div className="py-4 px-2">
                     <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-3 whitespace-pre-line text-left leading-relaxed shadow-sm">
                       {importError}
                     </div>
@@ -2829,50 +3170,50 @@ export default function ReviewView() {
                     <p className="text-xs">No games found for this period.</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 pb-4 sm:pb-0">
                     {importedGames.map((game) => {
                       const isWin = game.isWin;
                       const isDraw = game.isDraw;
                       
                       return (
-                        <div
+                        <button
                           key={game.id}
+                          type="button"
                           onClick={() => handleImportedGameSelect(game.pgn)}
-                          className="flex items-center justify-between p-3 bg-neutral-900/30 hover:bg-neutral-900/70 border border-neutral-850/40 hover:border-neutral-800 rounded-xl transition-all cursor-pointer group"
+                          className="w-full text-left flex items-center justify-between gap-2.5 p-3 min-h-[60px] bg-neutral-900/40 hover:bg-neutral-900/80 active:bg-neutral-900 border border-neutral-850/50 hover:border-neutral-750 rounded-xl transition-all cursor-pointer group"
                         >
-                          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
                             {/* Paper airplane icon */}
-                            <div className="w-8 h-8 rounded-lg bg-neutral-950/40 flex items-center justify-center shrink-0 border border-neutral-850/30 group-hover:bg-blue-600/10 group-hover:border-blue-500/20 transition-all">
+                            <div className="w-8 h-8 rounded-lg bg-neutral-950/60 hidden xs:flex sm:flex items-center justify-center shrink-0 border border-neutral-850/40 group-hover:bg-blue-600/10 group-hover:border-blue-500/20 transition-all">
                               <Send className="w-3.5 h-3.5 text-neutral-400 rotate-45 transform group-hover:text-blue-400 transition-colors" />
                             </div>
 
                             {/* Players */}
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-2.5 h-2.5 bg-white rounded-md shrink-0 shadow border border-neutral-200" />
-                                <span className="text-neutral-200 text-xs font-bold truncate max-w-[140px]" title={game.white}>
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-2.5 h-2.5 bg-white rounded-sm shrink-0 shadow border border-neutral-200" />
+                                <span className="text-neutral-200 text-xs font-bold truncate" title={game.white}>
                                   {game.white}
                                 </span>
-                                <span className="text-neutral-500 text-[10px] font-mono shrink-0">({game.whiteRating})</span>
+                                <span className="text-neutral-500 text-[10px] font-mono shrink-0 tabular-nums">({game.whiteRating})</span>
                               </div>
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-2.5 h-2.5 bg-neutral-900 border border-neutral-800 rounded-md shrink-0 shadow" />
-                                <span className="text-neutral-300 text-xs font-medium truncate max-w-[140px]" title={game.black}>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-2.5 h-2.5 bg-neutral-900 border border-neutral-700 rounded-sm shrink-0 shadow" />
+                                <span className="text-neutral-300 text-xs font-medium truncate" title={game.black}>
                                   {game.black}
                                 </span>
-                                <span className="text-neutral-500 text-[10px] font-mono shrink-0">({game.blackRating})</span>
+                                <span className="text-neutral-500 text-[10px] font-mono shrink-0 tabular-nums">({game.blackRating})</span>
                               </div>
                             </div>
                           </div>
 
-                          {/* Date */}
-                          <div className="text-[11px] text-neutral-500 font-medium px-3 shrink-0">
-                            {game.date}
-                          </div>
+                          {/* Date + Result */}
+                          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                            <span className="text-[10px] sm:text-[11px] text-neutral-500 font-medium tabular-nums">
+                              {game.date}
+                            </span>
 
-                          {/* Result & Actions */}
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`w-6 h-6 flex items-center justify-center rounded-md font-extrabold text-xs leading-none select-none ${
+                            <span className={`w-7 h-7 flex items-center justify-center rounded-lg font-extrabold text-xs leading-none select-none ${
                               isWin
                                 ? 'bg-green-500/15 text-green-400 border border-green-500/20'
                                 : isDraw
@@ -2881,20 +3222,8 @@ export default function ReviewView() {
                             }`}>
                               {isWin ? '+' : isDraw ? '=' : '-'}
                             </span>
-                            
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleImportedGameSelect(game.pgn);
-                              }}
-                              className="p-1.5 rounded-lg hover:bg-neutral-850 text-neutral-400 hover:text-white transition-colors"
-                              title="Analyse this game"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>

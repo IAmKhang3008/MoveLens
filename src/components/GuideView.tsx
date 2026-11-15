@@ -284,20 +284,20 @@ export default function ChessGame() {
   const aiProgressPercent = Math.round((aiCompletedCount / aiChecklist.length) * 100);
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-6 md:px-8 py-8 md:py-16 text-left">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 md:px-8 py-6 sm:py-8 md:py-16 text-left">
       
       {/* 1. Header Banner */}
-      <div className="border-b border-neutral-900 pb-8 mb-8 relative">
+      <div className="border-b border-neutral-900 pb-6 sm:pb-8 mb-6 sm:mb-8 relative">
         <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-6 left-12 w-64 h-24 bg-green-500/5 rounded-full blur-3xl pointer-events-none" />
         
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-semibold text-blue-400 mb-4 shadow-sm">
           <BookOpen className="w-3.5 h-3.5" />
-          Technical Integration Guide
+          Code Guide
         </div>
         
-        <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
-          Analyzing Chess with <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-green-400">Stockfish.js</span>
+        <h2 className="text-2xl sm:text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
+          Chess Review with <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-green-400">Stockfish.js</span>
         </h2>
         
         <p className="text-neutral-400 mt-4 max-w-3xl text-sm md:text-base leading-relaxed">
@@ -306,15 +306,18 @@ export default function ChessGame() {
       </div>
 
       {/* 2. Interactive Tab Bar */}
-      <div className="flex border-b border-neutral-900 mb-8 gap-6 relative z-10">
+      <div
+        data-no-page-swipe="true"
+        className="flex border-b border-neutral-900 mb-6 sm:mb-8 gap-4 sm:gap-6 relative z-10 overflow-x-auto whitespace-nowrap scrollbar-none"
+      >
         <button 
           onClick={() => setActiveTab('analysis')}
-          className={`pb-4 text-sm md:text-base font-bold relative transition-colors cursor-pointer flex items-center gap-2 ${
+          className={`min-h-[44px] pb-3.5 pt-1 text-sm md:text-base font-bold relative transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'analysis' ? 'text-green-400 font-extrabold' : 'text-neutral-400 hover:text-white'
           }`}
         >
-          <Layers className="w-4 h-4" />
-          <span>Game Analysis (PGN/FEN)</span>
+          <Layers className="w-4 h-4 shrink-0" />
+          <span>Game Review (PGN/FEN)</span>
           {activeTab === 'analysis' && (
             <motion.div 
               layoutId="activeTabUnderline" 
@@ -325,12 +328,12 @@ export default function ChessGame() {
         </button>
         <button 
           onClick={() => setActiveTab('ai-play')}
-          className={`pb-4 text-sm md:text-base font-bold relative transition-colors cursor-pointer flex items-center gap-2 ${
+          className={`min-h-[44px] pb-3.5 pt-1 text-sm md:text-base font-bold relative transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'ai-play' ? 'text-green-400 font-extrabold' : 'text-neutral-400 hover:text-white'
           }`}
         >
-          <Cpu className="w-4 h-4" />
-          <span>Play Against AI (Integration)</span>
+          <Cpu className="w-4 h-4 shrink-0" />
+          <span>Play AI</span>
           {activeTab === 'ai-play' && (
             <motion.div 
               layoutId="activeTabUnderline" 
@@ -346,12 +349,12 @@ export default function ChessGame() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Left Side: Main Core Content */}
-          <div className="col-span-1 lg:col-span-8 space-y-12">
+          <div className="col-span-1 lg:col-span-8 space-y-10 sm:space-y-12 min-w-0">
             
             {/* Core Concept: FEN vs PGN Card */}
-            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-6 md:p-8 shadow-xl">
+            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-4 sm:p-6 md:p-8 shadow-xl">
               <h3 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center gap-2.5">
-                <Layers className="w-5 h-5 text-blue-400" />
+                <Layers className="w-5 h-5 text-blue-400 shrink-0" />
                 Core Concepts: FEN vs PGN
               </h3>
               <p className="text-neutral-300 text-xs md:text-sm leading-relaxed mb-6">
@@ -359,7 +362,7 @@ export default function ChessGame() {
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl">
+                <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl min-w-0">
                   <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider block mb-1">FEN Notation</span>
                   <h4 className="text-sm font-bold text-white mb-2">Forsyth-Edwards Notation</h4>
                   <p className="text-neutral-400 text-xs leading-relaxed mb-3">
@@ -370,7 +373,7 @@ export default function ChessGame() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl">
+                <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl min-w-0">
                   <span className="text-[10px] text-green-400 font-bold uppercase tracking-wider block mb-1">PGN Database</span>
                   <h4 className="text-sm font-bold text-white mb-2">Portable Game Notation</h4>
                   <p className="text-neutral-400 text-xs leading-relaxed mb-3">
@@ -405,7 +408,7 @@ export default function ChessGame() {
                   </div>
                   <button 
                     onClick={() => handleCopy('snippet1', codeSnippet1)}
-                    className="p-1.5 rounded hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center gap-1.5 text-[10px] font-semibold"
+                    className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-[11px] font-semibold cursor-pointer"
                   >
                     {copiedStates['snippet1'] ? (
                       <>
@@ -420,7 +423,7 @@ export default function ChessGame() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left">
+                <pre data-no-page-swipe="true" className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left">
                   <code>{codeSnippet1}</code>
                 </pre>
               </div>
@@ -448,7 +451,7 @@ export default function ChessGame() {
                   </div>
                   <button 
                     onClick={() => handleCopy('snippet2', codeSnippet2)}
-                    className="p-1.5 rounded hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center gap-1.5 text-[10px] font-semibold"
+                    className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-[11px] font-semibold cursor-pointer"
                   >
                     {copiedStates['snippet2'] ? (
                       <>
@@ -463,7 +466,7 @@ export default function ChessGame() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[460px] scrollbar-thin">
+                <pre data-no-page-swipe="true" className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[460px] scrollbar-thin">
                   <code>{codeSnippet2}</code>
                 </pre>
               </div>
@@ -540,7 +543,7 @@ export default function ChessGame() {
                   </div>
                   <button 
                     onClick={() => handleCopy('snippet3', codeSnippet3)}
-                    className="p-1.5 rounded hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center gap-1.5 text-[10px] font-semibold"
+                    className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-[11px] font-semibold cursor-pointer"
                   >
                     {copiedStates['snippet3'] ? (
                       <>
@@ -555,7 +558,7 @@ export default function ChessGame() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left">
+                <pre data-no-page-swipe="true" className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left">
                   <code>{codeSnippet3}</code>
                 </pre>
               </div>
@@ -564,23 +567,23 @@ export default function ChessGame() {
           </div>
 
           {/* Right Side: Tips, Expert Advice, Interactive Checklist Card */}
-          <div className="col-span-1 lg:col-span-4 space-y-6 text-left">
+          <div className="col-span-1 lg:col-span-4 space-y-6 text-left min-w-0">
             
             {/* INTERACTIVE CHECKLIST CARD */}
-            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-4 sm:p-5 shadow-lg relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/5 rounded-full blur-xl pointer-events-none" />
               
               <h3 className="text-sm font-bold text-neutral-200 uppercase tracking-wider mb-1.5 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-green-400" />
-                Build Checklist
+                Checklist
               </h3>
-              <p className="text-[11px] text-neutral-500 mb-4">Click checklist boxes to monitor your build progress live.</p>
+              <p className="text-[11px] text-neutral-500 mb-4">Click boxes to track your progress.</p>
 
               {/* Checklist progress tracker */}
               <div className="mb-4">
                 <div className="flex items-center justify-between text-xs text-neutral-400 font-semibold mb-1">
-                  <span>Completed Tasks</span>
-                  <span className="text-green-400 font-mono">{progressPercent}%</span>
+                  <span>Completed</span>
+                  <span className="text-green-400 font-mono tabular-nums">{progressPercent}%</span>
                 </div>
                 <div className="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden">
                   <div 
@@ -596,9 +599,9 @@ export default function ChessGame() {
                   <button
                     key={item.id}
                     onClick={() => toggleChecklist(item.id)}
-                    className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-850/40 text-[11px] font-medium text-neutral-300 transition-colors group cursor-pointer"
+                    className="w-full min-h-[44px] flex items-center gap-2.5 p-2.5 rounded-xl text-left bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-850/40 text-xs font-medium text-neutral-300 transition-colors group cursor-pointer"
                   >
-                    <div className={`w-4 h-4 rounded border mt-0.5 flex items-center justify-center shrink-0 transition-colors ${
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
                       item.done 
                         ? 'bg-green-500/20 border-green-500 text-green-400' 
                         : 'border-neutral-700 text-transparent group-hover:border-neutral-500'
@@ -611,11 +614,11 @@ export default function ChessGame() {
               </div>
             </div>
 
-            {/* EXPERT TIPS ACCORDION/LIST */}
+            {/* TIPS */}
             <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg space-y-4">
               <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-blue-400" />
-                Expert-Level Tips
+                Tips
               </h3>
 
               <div className="space-y-4 text-xs">
@@ -655,16 +658,16 @@ export default function ChessGame() {
             <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg space-y-3">
               <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
                 <Settings className="w-4 h-4 text-purple-400" />
-                Reference Architectures
+                Examples
               </h3>
-              <p className="text-[11px] text-neutral-500 leading-relaxed">Mature open-source repositories illustrating optimal Stockfish setups:</p>
+              <p className="text-[11px] text-neutral-500 leading-relaxed">Open-source projects showing Stockfish setups:</p>
               
               <div className="space-y-2 text-xs">
                 <a 
                   href="https://github.com/anujayghosh/chess-analyzer" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     chess-analyzer
@@ -677,7 +680,7 @@ export default function ChessGame() {
                   href="https://github.com/parthasdey2304/chess-app" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     chess-app
@@ -690,7 +693,7 @@ export default function ChessGame() {
                   href="https://github.com/bh679/chess-client/wiki/Board-Analysis" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     Board Analysis Wiki
@@ -709,13 +712,13 @@ export default function ChessGame() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Left Side: Main Core Content */}
-          <div className="col-span-1 lg:col-span-8 space-y-12">
+          <div className="col-span-1 lg:col-span-8 space-y-10 sm:space-y-12 min-w-0">
             
             {/* Core Concept: Web Worker introduction */}
-            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-4 sm:p-6 md:p-8 shadow-xl relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 rounded-full blur-2xl pointer-events-none" />
               <h3 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center gap-2.5">
-                <Cpu className="w-5 h-5 text-green-400" />
+                <Cpu className="w-5 h-5 text-green-400 shrink-0" />
                 Integrating Stockfish AI Opponent
               </h3>
               <p className="text-neutral-300 text-xs md:text-sm leading-relaxed">
@@ -726,30 +729,30 @@ export default function ChessGame() {
             {/* STEP 1: DOWNLOAD AND PLACE FILES */}
             <div className="space-y-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 font-bold flex items-center justify-center text-xs">
+                <div className="w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 font-bold flex items-center justify-center text-xs shrink-0">
                   01
                 </div>
                 <h3 className="text-xl font-bold text-white">Step 1: Place Stockfish Files in Public Folder</h3>
               </div>
               
-              <div className="p-5 bg-neutral-900/60 border border-neutral-850 rounded-2xl space-y-3">
+              <div className="p-4 sm:p-5 bg-neutral-900/60 border border-neutral-850 rounded-2xl space-y-3">
                 <p className="text-neutral-300 text-xs md:text-sm leading-relaxed">
                   To load Stockfish correctly in modern React applications, locate the lightweight WebAssembly compilation files and save them directly in your project's static folder:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-850 flex items-center justify-between">
-                    <div>
+                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-850 flex items-center justify-between gap-2 min-w-0">
+                    <div className="min-w-0">
                       <span className="text-[10px] text-green-400 font-bold tracking-wider block uppercase">Engine File</span>
-                      <span className="text-xs font-mono font-bold text-white">stockfish-18-lite-single.js</span>
+                      <span className="text-xs font-mono font-bold text-white break-all">stockfish-18-lite-single.js</span>
                     </div>
-                    <Download className="w-4 h-4 text-neutral-500" />
+                    <Download className="w-4 h-4 text-neutral-500 shrink-0" />
                   </div>
-                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-850 flex items-center justify-between">
-                    <div>
+                  <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-850 flex items-center justify-between gap-2 min-w-0">
+                    <div className="min-w-0">
                       <span className="text-[10px] text-blue-400 font-bold tracking-wider block uppercase">WASM Component</span>
-                      <span className="text-xs font-mono font-bold text-white">stockfish-18-lite-single.wasm</span>
+                      <span className="text-xs font-mono font-bold text-white break-all">stockfish-18-lite-single.wasm</span>
                     </div>
-                    <Download className="w-4 h-4 text-neutral-500" />
+                    <Download className="w-4 h-4 text-neutral-500 shrink-0" />
                   </div>
                 </div>
                 <p className="text-[11px] text-neutral-500 italic mt-2">
@@ -780,7 +783,7 @@ export default function ChessGame() {
                   </div>
                   <button 
                     onClick={() => handleCopy('hookSnippet', codeSnippetHook)}
-                    className="p-1.5 rounded hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center gap-1.5 text-[10px] font-semibold"
+                    className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-[11px] font-semibold cursor-pointer"
                   >
                     {copiedStates['hookSnippet'] ? (
                       <>
@@ -795,7 +798,7 @@ export default function ChessGame() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[400px] scrollbar-thin">
+                <pre data-no-page-swipe="true" className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[400px] scrollbar-thin">
                   <code>{codeSnippetHook}</code>
                 </pre>
               </div>
@@ -823,7 +826,7 @@ export default function ChessGame() {
                   </div>
                   <button 
                     onClick={() => handleCopy('gameSnippet', codeSnippetGame)}
-                    className="p-1.5 rounded hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center gap-1.5 text-[10px] font-semibold"
+                    className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-lg hover:bg-neutral-900 text-neutral-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 text-[11px] font-semibold cursor-pointer"
                   >
                     {copiedStates['gameSnippet'] ? (
                       <>
@@ -838,7 +841,7 @@ export default function ChessGame() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[400px] scrollbar-thin">
+                <pre data-no-page-swipe="true" className="p-4 overflow-x-auto text-[11px] md:text-xs font-mono text-neutral-300 bg-[#121315]/70 leading-relaxed text-left max-h-[400px] scrollbar-thin">
                   <code>{codeSnippetGame}</code>
                 </pre>
               </div>
@@ -899,10 +902,10 @@ export default function ChessGame() {
           </div>
 
           {/* Right Side: Interactive Checklist, Troubleshoot and Open Source repositories */}
-          <div className="col-span-1 lg:col-span-4 space-y-6 text-left">
+          <div className="col-span-1 lg:col-span-4 space-y-6 text-left min-w-0">
             
             {/* INTERACTIVE CHECKLIST CARD */}
-            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+            <div className="bg-[#141517] border border-neutral-850 rounded-2xl p-4 sm:p-5 shadow-lg relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/5 rounded-full blur-xl pointer-events-none" />
               
               <h3 className="text-sm font-bold text-neutral-200 uppercase tracking-wider mb-1.5 flex items-center gap-2">
@@ -915,7 +918,7 @@ export default function ChessGame() {
               <div className="mb-4">
                 <div className="flex items-center justify-between text-xs text-neutral-400 font-semibold mb-1">
                   <span>Completed Tasks</span>
-                  <span className="text-green-400 font-mono">{aiProgressPercent}%</span>
+                  <span className="text-green-400 font-mono tabular-nums">{aiProgressPercent}%</span>
                 </div>
                 <div className="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden">
                   <div 
@@ -931,9 +934,9 @@ export default function ChessGame() {
                   <button
                     key={item.id}
                     onClick={() => toggleAiChecklist(item.id)}
-                    className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-850/40 text-[11px] font-medium text-neutral-300 transition-colors group cursor-pointer"
+                    className="w-full min-h-[44px] flex items-center gap-2.5 p-2.5 rounded-xl text-left bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-850/40 text-xs font-medium text-neutral-300 transition-colors group cursor-pointer"
                   >
-                    <div className={`w-4 h-4 rounded border mt-0.5 flex items-center justify-center shrink-0 transition-colors ${
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
                       item.done 
                         ? 'bg-green-500/20 border-green-500 text-green-400' 
                         : 'border-neutral-700 text-transparent group-hover:border-neutral-500'
@@ -990,7 +993,7 @@ export default function ChessGame() {
                   href="https://github.com/parthasdey2304/chess-app" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     chess-app (React/WASM)
@@ -1003,7 +1006,7 @@ export default function ChessGame() {
                   href="https://github.com/siddhantdg/SiChess" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     SiChess (Pro Interface)
@@ -1016,7 +1019,7 @@ export default function ChessGame() {
                   href="https://github.com/Andu-alem/react-chess-app" 
                   target="_blank" 
                   rel="noreferrer"
-                  className="block p-2.5 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
+                  className="min-h-[44px] p-3 rounded-xl bg-neutral-900/40 border border-neutral-850 hover:bg-neutral-900 hover:border-blue-500/20 text-neutral-300 font-bold transition-all flex items-center justify-between"
                 >
                   <span className="flex items-center gap-1.5">
                     react-chess-app (Hook based)

@@ -26,33 +26,33 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
 
   return (
     <motion.div 
-      className="w-full max-w-5xl mx-auto px-6 py-10 md:py-16 text-left relative animate-fade-in"
+      className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 md:py-16 text-left relative animate-fade-in"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
       {/* Header */}
-      <div className="text-center max-w-3xl mx-auto mb-16">
-        <h2 className="text-[clamp(2rem,6vw,2.75rem)] font-black text-white mb-5 tracking-tight">
-          Our Philosophy
+      <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-16">
+        <h2 className="text-[clamp(2rem,6vw,2.75rem)] font-black text-white mb-4 sm:mb-5 tracking-tight">
+          About MoveLens
         </h2>
         <p 
           className="text-neutral-300 text-[clamp(1rem,3vw,1.2rem)] leading-relaxed max-w-[700px] mx-auto font-medium"
           style={{ maxWidth: '700px', marginInline: 'auto' }}
         >
-          Why should understanding your chess games reside behind expensive paywalls?
+          Free game review for every player, without paywalls.
         </p>
       </div>
 
-      <div className="space-y-12">
+      <div className="space-y-8 sm:space-y-12">
         {/* Core Mission Hero Card */}
-        <div className="bg-[#141517] border border-neutral-800 rounded-2xl px-8 py-7 relative overflow-hidden shadow-xl transition-all duration-300 hover:border-neutral-700">
+        <div className="bg-[#141517] border border-neutral-800 rounded-2xl p-5 sm:px-8 sm:py-7 relative overflow-hidden shadow-xl transition-all duration-300 hover:border-neutral-700">
           <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-green-500/5 rounded-full blur-3xl pointer-events-none" />
           
           <h3 className="text-[clamp(1.2rem,3vw,1.4rem)] font-extrabold text-white mb-4.5 flex items-center gap-2.5">
-            <Heart className="w-5.5 h-5.5 text-red-500 fill-red-500/20 animate-pulse" /> 
-            <span>Built for the Community</span>
+            <Heart className="w-5.5 h-5.5 text-red-500 fill-red-500/20" /> 
+            <span>Built for Players</span>
           </h3>
           
           <p 
@@ -90,7 +90,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
             </div>
             <button
               onClick={() => setActiveDetailsModal('privacy')}
-              className="mt-6 w-full py-2 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40"
+              className="mt-6 w-full min-h-[44px] py-2.5 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40 cursor-pointer"
             >
               <Info className="w-3.5 h-3.5" />
               Privacy Details
@@ -117,7 +117,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
               href="https://github.com/official-stockfish/Stockfish"
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-6 w-full py-2 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40"
+              className="mt-6 w-full min-h-[44px] py-2.5 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40"
             >
               <Github className="w-3.5 h-3.5" />
               View Stockfish GitHub
@@ -143,7 +143,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
             </div>
             <button
               onClick={() => setActiveDetailsModal('wasm')}
-              className="mt-6 w-full py-2 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40"
+              className="mt-6 w-full min-h-[44px] py-2.5 bg-neutral-900 hover:bg-neutral-850 active:scale-95 text-neutral-300 hover:text-white font-semibold rounded-xl transition-all text-xs inline-flex items-center justify-center gap-1.5 border border-neutral-800/40 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               WASM Tech Details
@@ -173,7 +173,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
           </div>
           <button 
             onClick={() => setIsSponsorModalOpen(true)}
-            className="px-6 py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-neutral-950 font-bold rounded-xl transition-all shadow-md shadow-amber-500/10 flex items-center gap-2 shrink-0 text-sm"
+            className="w-full sm:w-auto min-h-[44px] px-6 py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-neutral-950 font-bold rounded-xl transition-all shadow-md shadow-amber-500/10 flex items-center justify-center gap-2 shrink-0 text-sm cursor-pointer"
           >
             <Heart className="w-4 h-4 fill-current" />
             Sponsor Project
@@ -181,7 +181,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
         </div>
 
         {/* Large Centered Path-Forward CTA */}
-        <div className="text-center bg-gradient-to-b from-[#141517] to-[#0d0e0f] border border-neutral-850 hover:border-neutral-800 rounded-2xl p-8 md:p-12 mt-16 shadow-xl relative overflow-hidden transition-all duration-300">
+        <div className="text-center bg-gradient-to-b from-[#141517] to-[#0d0e0f] border border-neutral-850 hover:border-neutral-800 rounded-2xl p-6 sm:p-8 md:p-12 mt-10 sm:mt-16 shadow-xl relative overflow-hidden transition-all duration-300">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-80 bg-green-500/[0.03] rounded-full blur-3xl pointer-events-none" />
           <h3 className="text-[clamp(1.5rem,4vw,2rem)] font-black text-white mb-3 tracking-tight">
             Ready to analyze your first game?
@@ -194,7 +194,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
           </p>
           <button
             onClick={onNavigateToReview}
-            className="px-8 py-4 bg-green-500 hover:bg-green-400 active:scale-95 text-neutral-950 font-extrabold rounded-xl transition-all shadow-lg shadow-green-500/20 inline-flex items-center gap-2.5 text-base"
+            className="w-full sm:w-auto min-h-[48px] px-8 py-4 bg-green-500 hover:bg-green-400 active:scale-95 text-neutral-950 font-extrabold rounded-xl transition-all shadow-lg shadow-green-500/20 inline-flex items-center justify-center gap-2.5 text-base cursor-pointer"
           >
             Analyze Now
             <ArrowRight className="w-5 h-5 stroke-[2.5]" />
@@ -217,14 +217,14 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
             />
             
             <motion.div 
-              className="bg-[#0B0C10] border border-neutral-800 rounded-2xl p-6 md:p-8 max-w-md w-full relative overflow-hidden shadow-2xl z-10"
+              className="bg-[#0B0C10] border border-neutral-800 rounded-2xl p-5 sm:p-6 md:p-8 max-w-md w-full max-h-[85dvh] overflow-y-auto relative shadow-2xl z-10"
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
             >
               <button 
                 onClick={() => setIsSponsorModalOpen(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+                className="absolute top-2.5 right-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
                 aria-label="Close dialog"
               >
                 <X className="w-4 h-4" />
@@ -261,7 +261,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
                           setSelectedAmount(amount);
                           setCustomAmount('');
                         }}
-                        className={`py-3 px-1 rounded-xl font-bold border transition-all text-sm flex flex-col items-center justify-center ${
+                        className={`min-h-[56px] py-2.5 px-1 rounded-xl font-bold border transition-all text-sm flex flex-col items-center justify-center tabular-nums cursor-pointer ${
                           selectedAmount === amount && !customAmount
                             ? 'bg-amber-500 text-neutral-950 border-amber-500 shadow-md shadow-amber-500/10'
                             : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700'
@@ -283,14 +283,14 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
                         setCustomAmount(e.target.value);
                         setSelectedAmount(null);
                       }}
-                      className="w-full bg-neutral-900 border border-neutral-800 hover:border-neutral-700 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none rounded-xl px-4 py-2.5 text-sm text-white font-semibold transition-all"
+                      className="w-full min-h-[44px] bg-neutral-900 border border-neutral-800 hover:border-neutral-700 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none rounded-xl px-4 py-2.5 text-sm text-white font-semibold tabular-nums transition-all"
                     />
                   </div>
 
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-neutral-950 font-extrabold rounded-xl transition-all shadow-lg shadow-amber-500/10 flex items-center justify-center gap-2 text-sm"
+                      className="w-full min-h-[48px] py-3.5 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-neutral-950 font-extrabold rounded-xl transition-all shadow-lg shadow-amber-500/10 flex items-center justify-center gap-2 text-sm tabular-nums cursor-pointer"
                     >
                       <span>Donate ${customAmount || selectedAmount || '0'}</span>
                     </button>
@@ -316,14 +316,14 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
             />
             
             <motion.div 
-              className="bg-[#0B0C10] border border-neutral-800 rounded-2xl p-6 md:p-8 max-w-md w-full relative overflow-hidden shadow-2xl z-10"
+              className="bg-[#0B0C10] border border-neutral-800 rounded-2xl p-5 sm:p-6 md:p-8 max-w-md w-full max-h-[85dvh] overflow-y-auto relative shadow-2xl z-10"
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
             >
               <button 
                 onClick={() => setActiveDetailsModal(null)}
-                className="absolute top-4 right-4 p-1.5 rounded-lg bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+                className="absolute top-2.5 right-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
                 aria-label="Close dialog"
               >
                 <X className="w-4 h-4" />
@@ -378,7 +378,7 @@ export default function AboutView({ onNavigateToReview, onNavigateToHome }: Abou
               <div className="mt-6 pt-4 border-t border-neutral-900 flex justify-end">
                 <button
                   onClick={() => setActiveDetailsModal(null)}
-                  className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 text-white rounded-xl text-xs font-semibold transition-all active:scale-95"
+                  className="min-h-[44px] px-5 py-2.5 bg-neutral-900 hover:bg-neutral-850 text-white rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer"
                 >
                   Close Details
                 </button>

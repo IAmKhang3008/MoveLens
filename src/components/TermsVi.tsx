@@ -1,15 +1,15 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 export default function TermsVi() {
   return (
-    <div className="w-full h-full overflow-y-auto bg-[#0B0C10] p-6 md:p-12 scrollbar-thin scrollbar-thumb-neutral-800">
+    <div className="w-full h-full overflow-y-auto bg-[#0B0C10] px-3 py-5 sm:p-6 md:p-12 scrollbar-thin scrollbar-thumb-neutral-800">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-4xl mx-auto bg-[#13151A] border border-neutral-800/50 rounded-2xl p-6 md:p-10 shadow-2xl"
+        className="max-w-4xl mx-auto bg-[#13151A] border border-neutral-800/50 rounded-2xl p-5 sm:p-6 md:p-10 shadow-2xl break-words [overflow-wrap:anywhere]"
       >
-        <h1 className="text-3xl font-black text-white mb-2">ĐIỀU KHOẢN VÀ ĐIỀU KIỆN</h1>
+        <h1 className="text-2xl sm:text-3xl font-black text-white mb-2">ĐIỀU KHOẢN VÀ ĐIỀU KIỆN</h1>
 <p className="text-sm text-neutral-400 mb-8">Cập nhật lần cuối ngày 23 tháng 7 năm 2026</p>
 <h2 className="text-xl font-bold text-white mt-8 mb-4 border-b border-neutral-800 pb-2">1. CHẤP THUẬN CÁC ĐIỀU KHOẢN PHÁP LÝ</h2>
 <p className="text-neutral-400 leading-relaxed mb-4">Chúng tôi là Khang Vu, hoạt động dưới tên thương mại MoveLens ("Công ty", "chúng tôi", "chúng tôi", "của chúng tôi"), một công ty được đăng ký tại Việt Nam, có địa chỉ tại __________, Thành phố Hồ Chí Minh, Việt Nam.</p>

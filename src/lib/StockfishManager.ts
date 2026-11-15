@@ -464,10 +464,10 @@ export class StockfishManager {
           const formattedScore = (scoreValue / 100).toFixed(2);
           scoreText = scoreValue >= 0 ? `+${formattedScore}` : formattedScore;
         } else if (mateMatch) {
-          scoreValue = parseInt(mateMatch[1], 10);
-          scoreType = 'mate';
           const mateValue = parseInt(mateMatch[1], 10);
-          scoreText = `M${Math.abs(mateValue)}`;
+          scoreValue = mateValue;
+          scoreType = 'mate';
+          scoreText = mateValue <= 0 ? `-M${Math.abs(mateValue)}` : `M${mateValue}`;
         }
 
         const nps = npsMatch ? parseInt(npsMatch[1], 10) : 0;

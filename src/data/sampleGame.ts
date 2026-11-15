@@ -68,6 +68,7 @@ interface RawPly {
   san: string;
   annotation: AnnotationType;
   comment?: string;
+  scoreText?: string;
   from: [number, number];
   to: [number, number];
   special?: 'castle-queenside' | 'capture-enpassant';
@@ -75,71 +76,71 @@ interface RawPly {
 
 const rawPlies: RawPly[] = [
   // 1. e4 e5
-  { moveNum: 1, color: 'w', san: "e4", annotation: 'book', comment: "The most popular opening move, claiming space in the center.", from: [6, 4], to: [4, 4] },
-  { moveNum: 1, color: 'b', san: "e5", annotation: 'book', comment: "Classic reply, contesting the center directly.", from: [1, 4], to: [3, 4] },
+  { moveNum: 1, color: 'w', san: "e4", annotation: 'book', scoreText: '+0.20', comment: "Claims central space and opens lines for the queen and bishop.", from: [6, 4], to: [4, 4] },
+  { moveNum: 1, color: 'b', san: "e5", annotation: 'book', scoreText: '+0.22', comment: "Solid central reply contesting the center directly.", from: [1, 4], to: [3, 4] },
   
   // 2. Nf3 d6
-  { moveNum: 2, color: 'w', san: "Nf3", annotation: 'book', comment: "Developing a piece, attacking e5, and preparing castling.", from: [7, 6], to: [5, 5] },
-  { moveNum: 2, color: 'b', san: "d6", annotation: 'book', comment: "The Philidor Defense. Solid, but cramps Black's dark-squared bishop.", from: [1, 3], to: [2, 3] },
+  { moveNum: 2, color: 'w', san: "Nf3", annotation: 'book', scoreText: '+0.30', comment: "Develops a knight, attacks e5, and prepares to castle.", from: [7, 6], to: [5, 5] },
+  { moveNum: 2, color: 'b', san: "d6", annotation: 'book', scoreText: '+0.45', comment: "Philidor Defense. Solid, though it cramps Black's dark-squared bishop.", from: [1, 3], to: [2, 3] },
   
   // 3. d4 Bg4?!
-  { moveNum: 3, color: 'w', san: "d4", annotation: 'best', comment: "Striking at the center immediately to seize the initiative.", from: [6, 3], to: [4, 3] },
-  { moveNum: 3, color: 'b', san: "Bg4?!", annotation: 'inaccuracy', comment: "A slight inaccuracy. Better was exd4, releasing the tension.", from: [0, 2], to: [4, 6] },
+  { moveNum: 3, color: 'w', san: "d4", annotation: 'best', scoreText: '+0.55', comment: "Strikes the center right away to keep the initiative.", from: [6, 3], to: [4, 3] },
+  { moveNum: 3, color: 'b', san: "Bg4?!", annotation: 'inaccuracy', scoreText: '+1.10', comment: "A slight inaccuracy. Releasing central tension with exd4 was safer.", from: [0, 2], to: [4, 6] },
   
   // 4. dxe5 Bxf3
-  { moveNum: 4, color: 'w', san: "dxe5", annotation: 'best', comment: "Exchanging central pawns. Black's reply is practically forced.", from: [4, 3], to: [3, 4] },
-  { moveNum: 4, color: 'b', san: "Bxf3", annotation: 'best', comment: "Eliminating the knight to prevent tactical problems on d5.", from: [4, 6], to: [5, 5] },
+  { moveNum: 4, color: 'w', san: "dxe5", annotation: 'best', scoreText: '+1.15', comment: "Trades central pawns and forces Black's bishop to commit.", from: [4, 3], to: [3, 4] },
+  { moveNum: 4, color: 'b', san: "Bxf3", annotation: 'best', scoreText: '+1.10', comment: "Removes the knight to avoid losing material on d5.", from: [4, 6], to: [5, 5] },
   
   // 5. Qxf3 dxe5
-  { moveNum: 5, color: 'w', san: "Qxf3", annotation: 'best', comment: "Recapturing with the queen, keeping an active eye on the kingside.", from: [7, 3], to: [5, 5] },
-  { moveNum: 5, color: 'b', san: "dxe5", annotation: 'best', comment: "Regaining the pawn, but Black remains behind in development.", from: [2, 3], to: [3, 4] },
+  { moveNum: 5, color: 'w', san: "Qxf3", annotation: 'best', scoreText: '+1.15', comment: "Recaptures actively with the queen aimed at f7.", from: [7, 3], to: [5, 5] },
+  { moveNum: 5, color: 'b', san: "dxe5", annotation: 'best', scoreText: '+1.20', comment: "Wins back the pawn, leaving Black behind in development.", from: [2, 3], to: [3, 4] },
   
   // 6. Bc4 Nf6
-  { moveNum: 6, color: 'w', san: "Bc4", annotation: 'best', comment: "Developing with tempo, threatening mate on f7!", from: [7, 5], to: [4, 2] },
-  { moveNum: 6, color: 'b', san: "Nf6", annotation: 'best', comment: "Developing and blocking the mate threat. Essential defense.", from: [0, 6], to: [2, 5] },
+  { moveNum: 6, color: 'w', san: "Bc4", annotation: 'best', scoreText: '+1.25', comment: "Develops with tempo and threatens checkmate on f7.", from: [7, 5], to: [4, 2] },
+  { moveNum: 6, color: 'b', san: "Nf6", annotation: 'best', scoreText: '+1.20', comment: "Blocks the mate threat while developing a knight.", from: [0, 6], to: [2, 5] },
   
   // 7. Qb3 Qe7
-  { moveNum: 7, color: 'w', san: "Qb3", annotation: 'best', comment: "Morphy creates a double attack on f7 and b7. Powerful pressure!", from: [5, 5], to: [5, 1] },
-  { moveNum: 7, color: 'b', san: "Qe7", annotation: 'mistake', comment: "Defends f7, but blocks the f8 bishop and cramps Black's kingside.", from: [0, 3], to: [1, 4] },
+  { moveNum: 7, color: 'w', san: "Qb3", annotation: 'best', scoreText: '+1.35', comment: "Forks f7 and b7, keeping Black tied down.", from: [5, 5], to: [5, 1] },
+  { moveNum: 7, color: 'b', san: "Qe7", annotation: 'mistake', scoreText: '+2.40', comment: "Guards f7, but blocks the f8 bishop and stalls development.", from: [0, 3], to: [1, 4] },
   
   // 8. Nc3 c6
-  { moveNum: 8, color: 'w', san: "Nc3", annotation: 'best', comment: "Declining to win b7 right away. Morphy prioritizes rapid development.", from: [7, 1], to: [5, 2] },
-  { moveNum: 8, color: 'b', san: "c6", annotation: 'best', comment: "Supports d5 and covers the b7 pawn, but delays development.", from: [1, 2], to: [2, 2] },
+  { moveNum: 8, color: 'w', san: "Nc3", annotation: 'best', scoreText: '+2.30', comment: "Skips the b7 pawn in favor of fast piece development.", from: [7, 1], to: [5, 2] },
+  { moveNum: 8, color: 'b', san: "c6", annotation: 'best', scoreText: '+2.40', comment: "Covers d5 and protects b7, though Black's pieces stay passive.", from: [1, 2], to: [2, 2] },
   
   // 9. Bg5 b5
-  { moveNum: 9, color: 'w', san: "Bg5", annotation: 'best', comment: "Pinning the f6 knight to maximize pressure on the d-file.", from: [7, 2], to: [3, 6] },
-  { moveNum: 9, color: 'b', san: "b5", annotation: 'mistake', comment: "An aggressive push that backfires. Black tries to kick the bishop, but compromises the queenside.", from: [1, 1], to: [3, 1] },
+  { moveNum: 9, color: 'w', san: "Bg5", annotation: 'best', scoreText: '+2.50', comment: "Pins the f6 knight to maximize pressure down the d-file.", from: [7, 2], to: [3, 6] },
+  { moveNum: 9, color: 'b', san: "b5", annotation: 'mistake', scoreText: '+4.20', comment: "Tries to push the bishop back, leaving the queenside exposed.", from: [1, 1], to: [3, 1] },
   
   // 10. Nxb5 cxb5
-  { moveNum: 10, color: 'w', san: "Nxb5", annotation: 'best', comment: "A brilliant piece sacrifice! Morphy realizes the value of time over material.", from: [5, 2], to: [3, 1] },
-  { moveNum: 10, color: 'b', san: "cxb5", annotation: 'best', comment: "Accepting the sacrifice, but Black's king remains exposed.", from: [2, 2], to: [3, 1] },
+  { moveNum: 10, color: 'w', san: "Nxb5", annotation: 'best', scoreText: '+4.30', comment: "Sacrifices a knight to tear open lines against Black's king.", from: [5, 2], to: [3, 1] },
+  { moveNum: 10, color: 'b', san: "cxb5", annotation: 'best', scoreText: '+4.35', comment: "Accepts the knight, leaving Black's king stranded in the center.", from: [2, 2], to: [3, 1] },
   
   // 11. Bxb5+ Nbd7
-  { moveNum: 11, color: 'w', san: "Bxb5+", annotation: 'best', comment: "Delivering check and winning back material with great development.", from: [4, 2], to: [3, 1] },
-  { moveNum: 11, color: 'b', san: "Nbd7", annotation: 'best', comment: "Blocking the check with the knight. Pinned to the king.", from: [0, 1], to: [1, 3] },
+  { moveNum: 11, color: 'w', san: "Bxb5+", annotation: 'best', scoreText: '+4.45', comment: "Delivers check and wins back a pawn with full attacking momentum.", from: [4, 2], to: [3, 1] },
+  { moveNum: 11, color: 'b', san: "Nbd7", annotation: 'best', scoreText: '+4.50', comment: "Blocks the check, creating a difficult pin along the diagonal.", from: [0, 1], to: [1, 3] },
   
   // 12. O-O-O Rd8
-  { moveNum: 12, color: 'w', san: "O-O-O", annotation: 'best', comment: "Castling queenside brings the rook directly into the attack. Brutal!", from: [7, 4], to: [7, 2], special: 'castle-queenside' },
-  { moveNum: 12, color: 'b', san: "Rd8", annotation: 'best', comment: "Defending the pinned knight on d7.", from: [0, 0], to: [0, 3] },
+  { moveNum: 12, color: 'w', san: "O-O-O", annotation: 'best', scoreText: '+5.20', comment: "Castles queenside and swings a rook straight onto the d-file.", from: [7, 4], to: [7, 2], special: 'castle-queenside' },
+  { moveNum: 12, color: 'b', san: "Rd8", annotation: 'best', scoreText: '+5.40', comment: "Adds support to the pinned knight on d7.", from: [0, 0], to: [0, 3] },
   
   // 13. Rxd7 Rxd7
-  { moveNum: 13, color: 'w', san: "Rxd7", annotation: 'great', comment: "Exchanging on d7 to remove a defender and maintain maximum pin pressure.", from: [7, 3], to: [1, 3] },
-  { moveNum: 13, color: 'b', san: "Rxd7", annotation: 'best', comment: "Recapturing with the rook. Pinned by Morphy's g5 bishop.", from: [0, 3], to: [1, 3] },
+  { moveNum: 13, color: 'w', san: "Rxd7", annotation: 'great', scoreText: '+5.80', comment: "Sacrifices the exchange to remove a key defender.", from: [7, 3], to: [1, 3] },
+  { moveNum: 13, color: 'b', san: "Rxd7", annotation: 'best', scoreText: '+5.90', comment: "Recaptures with the rook, now pinned to the king.", from: [0, 3], to: [1, 3] },
   
   // 14. Rd1 Qe6
-  { moveNum: 14, color: 'w', san: "Rd1", annotation: 'best', comment: "Bringing the second rook to the d-file. Tripling down on the pinned rook!", from: [7, 7], to: [7, 3] },
-  { moveNum: 14, color: 'b', san: "Qe6", annotation: 'blunder', comment: "A fatal blunder, trying to unpin but it allows a gorgeous mate.", from: [1, 4], to: [2, 4] },
+  { moveNum: 14, color: 'w', san: "Rd1", annotation: 'best', scoreText: '+6.10', comment: "Doubles pressure on the pinned d7 rook.", from: [7, 7], to: [7, 3] },
+  { moveNum: 14, color: 'b', san: "Qe6", annotation: 'blunder', scoreText: 'M3', comment: "Attempts to unpin the queen, allowing a forced mate in 3.", from: [1, 4], to: [2, 4] },
   
   // 15. Bxd7+ Nxd7
-  { moveNum: 15, color: 'w', san: "Bxd7+", annotation: 'best', comment: "Delivering check. The rook falls and the king is fully stripped of defense.", from: [3, 1], to: [1, 3] },
-  { moveNum: 15, color: 'b', san: "Nxd7", annotation: 'best', comment: "The knight recaptures, blocking the check, but it deflects from e8.", from: [2, 5], to: [1, 3] },
+  { moveNum: 15, color: 'w', san: "Bxd7+", annotation: 'best', scoreText: 'M2', comment: "Checks the king and strips away the d7 defender.", from: [3, 1], to: [1, 3] },
+  { moveNum: 15, color: 'b', san: "Nxd7", annotation: 'best', scoreText: 'M2', comment: "Must block the check, deflecting the knight away from e8.", from: [2, 5], to: [1, 3] },
   
   // 16. Qb8+!! Nxb8
-  { moveNum: 16, color: 'w', san: "Qb8+!!", annotation: 'brilliant', comment: "An absolutely stunning queen sacrifice to force the final mate pattern!", from: [5, 1], to: [0, 1] },
-  { moveNum: 16, color: 'b', san: "Nxb8", annotation: 'best', comment: "Forced response. The knight must capture.", from: [1, 3], to: [0, 1] },
+  { moveNum: 16, color: 'w', san: "Qb8+!!", annotation: 'brilliant', scoreText: 'M1', comment: "A brilliant queen sacrifice to deflect the final defender of d8!", from: [5, 1], to: [0, 1] },
+  { moveNum: 16, color: 'b', san: "Nxb8", annotation: 'best', scoreText: 'M1', comment: "Forced capture, leaving d8 undefended.", from: [1, 3], to: [0, 1] },
   
   // 17. Rd8#
-  { moveNum: 17, color: 'w', san: "Rd8#", annotation: 'best', comment: "Checkmate! The lone rook delivers mate supported by the pinned g5 bishop. Masterpiece!", from: [7, 3], to: [0, 3] }
+  { moveNum: 17, color: 'w', san: "Rd8#", annotation: 'best', scoreText: 'M0', comment: "Checkmate! Supported by the g5 bishop, the rook ends the game.", from: [7, 3], to: [0, 3] }
 ];
 
 // Generate plies with pre-calculated board states
@@ -191,6 +192,7 @@ export function generatePlies(): Ply[] {
       san: rp.san,
       annotation: rp.annotation,
       comment: rp.comment,
+      scoreText: rp.scoreText,
       boardState: nextBoard,
       fromSquare: rp.from,
       toSquare: rp.to,
